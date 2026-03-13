@@ -1,0 +1,9 @@
+# Never push env
+.env
+
+# Binaries
+main
+bin/
+*.exe
+
+config.yaml
