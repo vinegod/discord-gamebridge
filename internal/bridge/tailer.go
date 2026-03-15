@@ -66,6 +66,10 @@ func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sen
 		return
 	}
 
+	if bridge.CompiledIgnore != nil && bridge.CompiledIgnore.MatchString(cleanLine) {
+		return
+	}
+
 	// 1. In-game chat: <PlayerName> message
 	if bridge.CompiledChat != nil {
 		if groups := extractGroups(bridge.CompiledChat, cleanLine); groups != nil {
@@ -108,6 +112,15 @@ func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sen
 			})
 			return
 		}
+	}
+
+	// 4. Other console logs
+	if bridge.CompiledConsole != nil && bridge.CompiledConsole.MatchString(cleanLine) {
+		sender.Send(discord.Message{
+			Content:  cleanLine,
+			Username: "Server",
+		})
+		return
 	}
 
 	sender.Send(discord.Message{

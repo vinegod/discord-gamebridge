@@ -41,12 +41,16 @@ type BridgeConfig struct {
 	CompiledChat            *regexp.Regexp `yaml:"-"`
 	CompiledJoin            *regexp.Regexp `yaml:"-"`
 	CompiledLeave           *regexp.Regexp `yaml:"-"`
+	CompiledConsole         *regexp.Regexp `yaml:"-"`
+	CompiledIgnore          *regexp.Regexp `yaml:"-"`
 }
 
 type RegexParsers struct {
-	Chat  string `yaml:"chat"`
-	Join  string `yaml:"join"`
-	Leave string `yaml:"leave"`
+	Chat    string `yaml:"chat"`
+	Join    string `yaml:"join"`
+	Leave   string `yaml:"leave"`
+	Console string `yaml:"console"`
+	Ignore  string `yaml:"ignore"`
 }
 
 type CommandType string
@@ -154,6 +158,18 @@ func Load(configPath string) (*Config, error) {
 		bridge.CompiledLeave, compileErr = regexp.Compile(bridge.RegexParsers.Leave)
 		if compileErr != nil {
 			return nil, fmt.Errorf("invalid leave regex in bridge '%s': %w", name, compileErr)
+		}
+
+		bridge.CompiledConsole, compileErr = regexp.Compile(bridge.RegexParsers.Console)
+		if compileErr != nil {
+			return nil, fmt.Errorf("invalid console regex in bridge '%s': %w", name, compileErr)
+		}
+
+		if bridge.RegexParsers.Ignore != "" {
+			bridge.CompiledIgnore, compileErr = regexp.Compile(bridge.RegexParsers.Ignore)
+			if compileErr != nil {
+				slog.Warn("invalid ignore regex in bridge", "Name", name, "Error", compileErr)
+			}
 		}
 	}
 
