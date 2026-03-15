@@ -122,10 +122,6 @@ func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sen
 		})
 		return
 	}
-
-	sender.Send(discord.Message{
-		Content: cleanLine,
-	})
 }
 
 // extractGroups maps a regex's named capture groups to a string map.
