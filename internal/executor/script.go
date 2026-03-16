@@ -1,3 +1,4 @@
+// Package
 package executor
 
 import (
@@ -11,7 +12,7 @@ import (
 )
 
 // RunScript safely verifies and executes a local shell script within the allowed directory bounds
-func RunScript(ctx context.Context, scriptPath string, allowedDir string, args []string) (string, error) {
+func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string) (string, error) {
 	// Resolve the Allowed Directory to an absolute path, evaluating any symlinks
 	realAllowedDir, err := filepath.EvalSymlinks(allowedDir)
 	if err != nil {
@@ -58,11 +59,12 @@ func RunScript(ctx context.Context, scriptPath string, allowedDir string, args [
 		return "", fmt.Errorf("target is a directory, not an executable script")
 	}
 
-	if info.Mode()&0111 == 0 {
+	if info.Mode()&0o111 == 0 {
 		return "", fmt.Errorf("script is not executable: %s (run chmod +x)", realScriptPath)
 	}
 
-	cmd := exec.CommandContext(ctx, realScriptPath, args...)
+	// TODO: Check G204
+	cmd := exec.CommandContext(ctx, realScriptPath, args...) // #nosec G204
 	output, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return string(output), fmt.Errorf("script timed out: %w", ctx.Err())

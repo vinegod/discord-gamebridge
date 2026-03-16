@@ -1,3 +1,4 @@
+// App configuration file
 package config
 
 import (
@@ -18,6 +19,7 @@ type Config struct {
 	Commands []CommandConfig `yaml:"commands"`
 }
 
+// Bot config
 type BotConfig struct {
 	TokenEnvVar      string `yaml:"token_env_var"`
 	LogLevel         string `yaml:"log_level"`
@@ -25,6 +27,7 @@ type BotConfig struct {
 	Token            string `yaml:"-"`
 }
 
+// Server config
 type ServerConfig struct {
 	TmuxSession string `yaml:"tmux_session"`
 	TmuxWindow  int    `yaml:"tmux_window"`
@@ -47,6 +50,7 @@ type ServerConfig struct {
 	CompiledIgnore  *regexp.Regexp `yaml:"-"`
 }
 
+// Regex patters for logs
 type RegexParsers struct {
 	Chat    string `yaml:"chat"`
 	Join    string `yaml:"join"`
@@ -62,6 +66,7 @@ const (
 	CommandTypeScript CommandType = "script"
 )
 
+// Command structure config
 type CommandConfig struct {
 	Name           string           `yaml:"name"`
 	Description    string           `yaml:"description"`
@@ -74,6 +79,7 @@ type CommandConfig struct {
 	Arguments      []ArgumentConfig `yaml:"arguments"`
 }
 
+// Config for allowed roles and users
 type PermissionConfig struct {
 	AllowedRoles []string `yaml:"allowed_roles"`
 	AllowedUsers []string `yaml:"allowed_users"`
@@ -115,7 +121,8 @@ func Load(configPath string) (*Config, error) {
 	// Load .env file (ignoring error if it doesn't exist, as env vars might be set in OS)
 	_ = godotenv.Load()
 
-	data, err := os.ReadFile(configPath)
+	// TODO: Read from repo dir for now, add this option to CLI
+	data, err := os.ReadFile(configPath) // #nosec G304
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}

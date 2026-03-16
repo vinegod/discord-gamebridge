@@ -15,7 +15,7 @@ import (
 
 // StartTailer begins tailing the server's log file and routes parsed
 // lines to the appropriate Discord channel via the provided Sender.
-func StartTailer(ctx context.Context, serverCfg config.ServerConfig, sender *discord.Sender) error {
+func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender *discord.Sender) error {
 	t, err := tail.TailFile(serverCfg.LogFilePath, tail.Config{
 		Follow:   true,
 		ReOpen:   true,
@@ -59,7 +59,7 @@ func StartTailer(ctx context.Context, serverCfg config.ServerConfig, sender *dis
 
 // processLogLine parses a single log line against the bridge's compiled
 // regexes and enqueues an appropriate Message on the Sender.
-func processLogLine(line string, config config.ServerConfig, sender *discord.Sender) {
+func processLogLine(line string, config *config.ServerConfig, sender *discord.Sender) {
 	cleanLine := strings.TrimSpace(line)
 	if cleanLine == "" {
 		return

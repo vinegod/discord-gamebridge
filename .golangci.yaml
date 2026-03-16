@@ -1,0 +1,67 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+  gosec:
+    severity: medium
+    confidence: medium
+  goimports:
+    local-prefixes: github.com/vinegod/discordgamebridge
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+      - name: package-comments
+        disabled: true
+
+linters:
+  disable-all: true
+  enable:
+    # Default / Standard
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # Security & Execution
+    - gosec
+
+    # Formatting & Style
+    # - goimports TODO: format imports
+    - revive
+    - misspell
+    - whitespace
+    - nolintlint
+
+    # Complexity & Design
+    - gocyclo
+    - gocritic
+    - nakedret
+    - exhaustive
+    - nestif
+
+    # Performance
+    - prealloc
+    - gocognit
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
