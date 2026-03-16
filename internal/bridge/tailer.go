@@ -118,7 +118,7 @@ func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sen
 	if bridge.CompiledConsole != nil && bridge.CompiledConsole.MatchString(cleanLine) {
 		sender.Send(discord.Message{
 			Content:  cleanLine,
-			Username: "Server",
+			Username: discord.SYSTEM_USERNAME,
 		})
 		return
 	}
