@@ -64,11 +64,15 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 		return
 	}
 
-	if cmdCfg.Type == config.CommandTypeTmux {
+	switch cmdCfg.Type {
+	case config.CommandTypeTmux:
 		b.handleTmuxCommand(b.ctx, event, *cmdCfg)
-	} else if cmdCfg.Type == config.CommandTypeScript {
+	case config.CommandTypeScript:
 		b.handleScriptCommand(b.ctx, event, *cmdCfg)
+	default:
+		slog.Error("Unknown command type.", "Name", cmdCfg.Name, "Type", cmdCfg.Type)
 	}
+
 }
 
 // hasPermission checks User IDs and Role IDs against the config
@@ -96,14 +100,6 @@ func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCr
 
 // handleTmuxCommand processes and routes commands to gotmux
 func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg config.CommandConfig) {
-	bridge, exists := b.Config.Bridges[cmdCfg.TargetBridge]
-	if !exists {
-		if err := event.CreateMessage(discord.MessageCreate{Content: "Configuration error: Bridge not found."}); err != nil {
-			slog.Error("Command", cmdCfg.Name, "failed to respond to user", event.ID(), "error", err)
-		}
-		return
-	}
-
 	data := event.SlashCommandInteractionData()
 
 	finalCmd := cmdCfg.Template
@@ -118,19 +114,19 @@ func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.Applic
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(b.ctx, cmdCfg.CommandTimeout)
+	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
 
-	err := executor.SendCommand(ctx, bridge.TmuxSession, bridge.TmuxWindow, bridge.TmuxPane, finalCmd)
+	err := executor.SendCommand(ctx, b.Config.Server.TmuxSession, b.Config.Server.TmuxWindow, b.Config.Server.TmuxPane, finalCmd)
 	if err != nil {
 		if err := event.CreateMessage(discord.MessageCreate{Content: "Failed to execute command: " + err.Error()}); err != nil {
-			slog.Error("Command", cmdCfg.Name, "failed to respond to user", event.ID(), "error", err)
+			slog.Error("Failed to respond to user.", "Command", cmdCfg.Name, "error", err.Error())
 		}
 		return
 	}
 
 	if err := event.CreateMessage(discord.MessageCreate{Content: "Command executed successfully in Tmux!"}); err != nil {
-		slog.Error("Command", cmdCfg.Name, "failed to respond to user", event.ID(), "error", err)
+		slog.Error("Failed to respond to user.", "Command", cmdCfg.Name, "error", err.Error())
 	}
 }
 
@@ -155,7 +151,7 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 	}
 
 	// Pass the AllowedScriptDir from the bot's configuration
-	ctx, cancel := context.WithTimeout(b.ctx, cmdCfg.CommandTimeout)
+	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
 
 	output, err := executor.RunScript(ctx, cmdCfg.ScriptPath, b.Config.Bot.AllowedScriptDir, args)

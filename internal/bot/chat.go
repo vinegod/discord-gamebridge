@@ -2,9 +2,10 @@ package bot
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"unicode"
+
+	"log/slog"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -18,35 +19,34 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 		return
 	}
 
-	for _, bridge := range b.Config.Bridges {
-		if bridge.Enabled && event.Message.ChannelID.String() == bridge.DiscordChatChannelID {
+	if event.Message.ChannelID.String() == b.Config.Server.DiscordChatChannelID {
 
-			// Resolve mentions and sanitize the raw input
-			cleanText := resolveMentions(event.Message)
-			safeMessage := sanitizeChat(cleanText)
+		// Resolve mentions and sanitize the raw input
+		cleanText := resolveMentions(event.Message)
+		safeMessage := sanitizeChat(cleanText)
 
-			// Don't send empty messages (e.g., if the user only posted an image or newlines)
-			if safeMessage == "" {
-				return
-			}
-
-			// Get a safe representation of the Author's name
-			authorName := getSafeName(event.Message.Author)
-
-			gameCommand := bridge.ChatTemplate
-			gameCommand = strings.ReplaceAll(gameCommand, "{{.user}}", authorName)
-			gameCommand = strings.ReplaceAll(gameCommand, "{{.message}}", safeMessage)
-
-			ctx, cancel := context.WithTimeout(b.ctx, bridge.ChatTimeout)
-			defer cancel()
-
-			// Send to the multiplexer
-			err := executor.SendCommand(ctx, bridge.TmuxSession, bridge.TmuxWindow, bridge.TmuxPane, gameCommand)
-			if err != nil {
-				fmt.Errorf("Failed to send chat to tmux: %w", err)
-			}
+		// Don't send empty messages (e.g., if the user only posted an image or newlines)
+		if safeMessage == "" {
 			return
 		}
+
+		// Get a safe representation of the Author's name
+		authorName := getSafeName(event.Message.Author)
+
+		gameCommand := b.Config.Server.ChatTemplate
+		gameCommand = strings.ReplaceAll(gameCommand, "{{.user}}", authorName)
+		gameCommand = strings.ReplaceAll(gameCommand, "{{.message}}", safeMessage)
+
+		ctx, cancel := context.WithTimeout(b.ctx, b.Config.Server.ChatTimeout)
+		defer cancel()
+
+		// Send to the multiplexer
+		err := executor.SendCommand(ctx, b.Config.Server.TmuxSession, b.Config.Server.TmuxWindow, b.Config.Server.TmuxPane, gameCommand)
+		if err != nil {
+			slog.Error("Failed to send chat to tmux.", "Error", err)
+		}
+		return
+
 	}
 }
 

@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/webhook"
-	"github.com/disgoorg/snowflake/v2"
+	snowflake "github.com/disgoorg/snowflake/v2"
 	"github.com/vinegod/discordgamebridge/internal/bot"
-	"github.com/vinegod/discordgamebridge/internal/bridge"
 	"github.com/vinegod/discordgamebridge/internal/config"
 	"github.com/vinegod/discordgamebridge/internal/discord"
+	"github.com/vinegod/discordgamebridge/internal/server"
 )
 
-func main() {
+func Run() {
 	slog.Info("Starting Terraria Integration Engine...")
 
 	// 1. Load + validate configuration.
@@ -46,71 +46,62 @@ func main() {
 	discordBot, err := bot.NewBot(ctx, *cfg)
 	if err != nil {
 		slog.Error("Failed to initialize Discord bot", "error", err)
-		os.Exit(1)
+		cancel()
 	}
-	if err = discordBot.Client.OpenGateway(context.Background()); err != nil {
+	if err = discordBot.Client.OpenGateway(ctx); err != nil {
 		slog.Error("Failed to connect to Discord gateway", "error", err)
-		os.Exit(1)
+		cancel()
 	}
 	slog.Info("Connected to Discord Gateway")
 
 	if err = discordBot.SyncCommands(); err != nil {
 		slog.Error("Failed to sync slash commands", "error", err)
-		os.Exit(1)
+		cancel()
 	}
 	slog.Info("Slash commands synchronized")
 
 	var senders []*discord.Sender
-
-	for name, br := range cfg.Bridges {
-		if !br.Enabled {
-			continue
-		}
-
-		// Build the optional webhook client.
-		var webhookClient *webhook.Client
-		if br.DiscordWebhookURL != "" {
-			wc, err := webhook.NewWithURL(br.DiscordWebhookURL)
-			if err != nil {
-				slog.Error("Failed to parse webhook URL", "bridge", name, "error", err)
-				os.Exit(1)
-			}
-			webhookClient = wc
-		}
-
-		channelID, err := snowflake.Parse(br.DiscordChatChannelID)
+	// Build the optional webhook client.
+	var webhookClient *webhook.Client
+	if cfg.Server.DiscordWebhookURL != "" {
+		wc, err := webhook.NewWithURL(cfg.Server.DiscordWebhookURL)
 		if err != nil {
-			slog.Error("Invalid discord chat channel ID.", "Error", err)
-			continue
+			slog.Error("Failed to parse webhook URL", "error", err)
 		}
-		// One Sender per bridge: owns rate limiting, batching, and transport
-		// selection (webhook → bot fallback). The tailer just calls Send().
-		sender := discord.NewSender(discord.SenderConfig{
-			ChannelID:     channelID,
-			WebhookClient: webhookClient,
-			BotClient:     discordBot.Client,
-			FlushInterval: 500 * time.Millisecond,
-			MaxBatchLines: 15,
-			RateLimit:     5,
-			RateWindow:    5 * time.Second,
-			MaxRetries:    3,
-		})
+		webhookClient = wc
+	}
 
-		sender.Start(ctx)
-		if err != nil {
-			slog.Error("Failed to create sender.", "Error", err)
-		} else {
-			senders = append(senders, sender)
-		}
+	channelID, err := snowflake.Parse(cfg.Server.DiscordChatChannelID)
+	if err != nil {
+		slog.Error("Invalid discord chat channel ID.", "Error", err)
+	}
+	// One Sender per bridge: owns rate limiting, batching, and transport
+	// selection (webhook → bot fallback). The tailer just calls Send().
+	sender := discord.NewSender(discord.SenderConfig{
+		ChannelID:     channelID,
+		WebhookClient: webhookClient,
+		BotClient:     discordBot.Client,
+		FlushInterval: 500 * time.Millisecond,
+		MaxBatchLines: 15,
+		RateLimit:     5,
+		RateWindow:    5 * time.Second,
+		MaxRetries:    3,
+	})
 
-		if err := bridge.StartTailer(ctx, *br, sender); err != nil {
-			slog.Error("Failed to start tailer", "bridge", name, "error", err)
-		} else {
-			slog.Info("Started log tailer",
-				"bridge", name,
-				"webhook", webhookClient != nil,
-			)
-		}
+	sender.Start(ctx)
+	if err != nil {
+		slog.Error("Failed to create sender.", "Error", err)
+	} else {
+		senders = append(senders, sender)
+	}
+
+	if err := server.StartTailer(ctx, cfg.Server, sender); err != nil {
+		slog.Error("Failed to start tailer", "error", err)
+	} else {
+		slog.Info("Started log tailer",
+
+			"webhook", webhookClient != nil,
+		)
 	}
 
 	// 4. Block until SIGINT / SIGTERM.

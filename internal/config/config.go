@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"gopkg.in/yaml.v3"
+	yaml "gopkg.in/yaml.v3"
 )
 
 // Config represents the root of config.yaml
 type Config struct {
-	Bot      BotConfig                `yaml:"bot"`
-	Bridges  map[string]*BridgeConfig `yaml:"bridges"`
-	Commands []CommandConfig          `yaml:"commands"`
+	Bot      BotConfig       `yaml:"bot"`
+	Server   ServerConfig    `yaml:"server"`
+	Commands []CommandConfig `yaml:"commands"`
 }
 
 type BotConfig struct {
@@ -25,24 +25,26 @@ type BotConfig struct {
 	Token            string `yaml:"-"`
 }
 
-type BridgeConfig struct {
-	Enabled                 bool           `yaml:"enabled"`
-	TmuxSession             string         `yaml:"tmux_session"`
-	TmuxWindow              int            `yaml:"tmux_window"`
-	TmuxPane                int            `yaml:"tmux_pane"`
-	DiscordChatChannelID    string         `yaml:"discord_chat_channel_id"`
-	DiscordConsoleChannelID string         `yaml:"discord_console_channel_id"`
-	DiscordWebhookURL       string         `yaml:"discord_webhook_url"`
-	ChatTemplate            string         `yaml:"chat_template"`
-	ChatTimeout             time.Duration  `yaml:"chat_timeout"`
-	IgnoreChatNames         []string       `yaml:"ignore_chat_names"`
-	LogFilePath             string         `yaml:"log_file_path"`
-	RegexParsers            RegexParsers   `yaml:"regex_parsers"`
-	CompiledChat            *regexp.Regexp `yaml:"-"`
-	CompiledJoin            *regexp.Regexp `yaml:"-"`
-	CompiledLeave           *regexp.Regexp `yaml:"-"`
-	CompiledConsole         *regexp.Regexp `yaml:"-"`
-	CompiledIgnore          *regexp.Regexp `yaml:"-"`
+type ServerConfig struct {
+	TmuxSession string `yaml:"tmux_session"`
+	TmuxWindow  int    `yaml:"tmux_window"`
+	TmuxPane    int    `yaml:"tmux_pane"`
+
+	DiscordChatChannelID     string `yaml:"discord_chat_channel_id"`
+	DiscordWebhookURL        string `yaml:"discord_webhook_url"`
+	DiscordConsoleChannelID  string `yaml:"discord_console_channel_id"`
+	DiscordConsoleWebhookURL string `yaml:"discord_console_webhook_url"`
+
+	ChatTemplate string        `yaml:"chat_template"`
+	ChatTimeout  time.Duration `yaml:"chat_timeout"`
+	LogFilePath  string        `yaml:"log_file_path"`
+	RegexParsers RegexParsers  `yaml:"regex_parsers"`
+
+	CompiledChat    *regexp.Regexp `yaml:"-"`
+	CompiledJoin    *regexp.Regexp `yaml:"-"`
+	CompiledLeave   *regexp.Regexp `yaml:"-"`
+	CompiledConsole *regexp.Regexp `yaml:"-"`
+	CompiledIgnore  *regexp.Regexp `yaml:"-"`
 }
 
 type RegexParsers struct {
@@ -64,7 +66,6 @@ type CommandConfig struct {
 	Name           string           `yaml:"name"`
 	Description    string           `yaml:"description"`
 	Type           CommandType      `yaml:"type"`
-	TargetBridge   string           `yaml:"target_bridge"`
 	ScriptPath     string           `yaml:"script_path"`
 	Template       string           `yaml:"template"`
 	Permissions    PermissionConfig `yaml:"permissions"`
@@ -97,11 +98,8 @@ func (c *Config) applyDefaults() {
 		c.Bot.LogLevel = "info"
 	}
 
-	for _, bridge := range c.Bridges {
-		// Prevent instant context cancellation on tmux calls
-		if bridge.ChatTimeout == 0 {
-			bridge.ChatTimeout = 5 * time.Second
-		}
+	if c.Server.ChatTimeout == 0 {
+		c.Server.ChatTimeout = 5 * time.Second
 	}
 
 	for i := range c.Commands {
@@ -132,44 +130,37 @@ func Load(configPath string) (*Config, error) {
 	// Load Discord Token
 	token := os.Getenv(cfg.Bot.TokenEnvVar)
 	if token == "" {
-		return nil, fmt.Errorf("critical: Discord token environment variable '%s' is empty", cfg.Bot.TokenEnvVar)
+		return nil, fmt.Errorf("critical: Discord token environment variable [%s] is empty", cfg.Bot.TokenEnvVar)
 	}
 	cfg.Bot.Token = token
 
-	// Pre-compile regular expressions
-	for name, bridge := range cfg.Bridges {
-		if !bridge.Enabled {
-			continue
-		}
+	cfg.Server.DiscordWebhookURL = os.Getenv(cfg.Server.DiscordWebhookURL)
 
-		bridge.DiscordWebhookURL = os.Getenv(bridge.DiscordWebhookURL)
+	var compileErr error
+	cfg.Server.CompiledChat, compileErr = regexp.Compile(cfg.Server.RegexParsers.Chat)
+	if compileErr != nil {
+		return nil, fmt.Errorf("invalid chat regex: %w", compileErr)
+	}
 
-		var compileErr error
-		bridge.CompiledChat, compileErr = regexp.Compile(bridge.RegexParsers.Chat)
+	cfg.Server.CompiledJoin, compileErr = regexp.Compile(cfg.Server.RegexParsers.Join)
+	if compileErr != nil {
+		return nil, fmt.Errorf("invalid join regex: %w", compileErr)
+	}
+
+	cfg.Server.CompiledLeave, compileErr = regexp.Compile(cfg.Server.RegexParsers.Leave)
+	if compileErr != nil {
+		return nil, fmt.Errorf("invalid leave regex: %w", compileErr)
+	}
+
+	cfg.Server.CompiledConsole, compileErr = regexp.Compile(cfg.Server.RegexParsers.Console)
+	if compileErr != nil {
+		return nil, fmt.Errorf("invalid console regex: %w", compileErr)
+	}
+
+	if cfg.Server.RegexParsers.Ignore != "" {
+		cfg.Server.CompiledIgnore, compileErr = regexp.Compile(cfg.Server.RegexParsers.Ignore)
 		if compileErr != nil {
-			return nil, fmt.Errorf("invalid chat regex in bridge '%s': %w", name, compileErr)
-		}
-
-		bridge.CompiledJoin, compileErr = regexp.Compile(bridge.RegexParsers.Join)
-		if compileErr != nil {
-			return nil, fmt.Errorf("invalid join regex in bridge '%s': %w", name, compileErr)
-		}
-
-		bridge.CompiledLeave, compileErr = regexp.Compile(bridge.RegexParsers.Leave)
-		if compileErr != nil {
-			return nil, fmt.Errorf("invalid leave regex in bridge '%s': %w", name, compileErr)
-		}
-
-		bridge.CompiledConsole, compileErr = regexp.Compile(bridge.RegexParsers.Console)
-		if compileErr != nil {
-			return nil, fmt.Errorf("invalid console regex in bridge '%s': %w", name, compileErr)
-		}
-
-		if bridge.RegexParsers.Ignore != "" {
-			bridge.CompiledIgnore, compileErr = regexp.Compile(bridge.RegexParsers.Ignore)
-			if compileErr != nil {
-				slog.Warn("invalid ignore regex in bridge", "Name", name, "Error", compileErr)
-			}
+			slog.Warn("invalid ignore regex", "Error", compileErr)
 		}
 	}
 
@@ -178,36 +169,31 @@ func Load(configPath string) (*Config, error) {
 
 // Validate checks the loaded configuration for missing or invalid data before the bot starts.
 func (c *Config) Validate() error {
-	// Validate each enabled bridge
-	for bridgeName, bridge := range c.Bridges {
-		if !bridge.Enabled {
-			continue
-		}
+	// Validate each enabled c.Server
 
-		slog.Info("Validating bridge: ", "bridge", bridgeName)
+	slog.Info("Validating Server config")
 
-		if bridge.ChatTemplate == "" {
-			slog.Warn("'chat_template' is empty. Discord-to-Game chat will be DISABLED.", "bridge", bridgeName)
-		}
+	if c.Server.ChatTemplate == "" {
+		slog.Warn("'chat_template' is empty. Discord-to-Game chat will be DISABLED.")
+	}
 
-		if bridge.DiscordWebhookURL == "" {
-			slog.Warn("'discord_webhook_url' is missing. The bot will fallback to standard messages without player avatars.", "bridge", bridgeName)
-		}
+	if c.Server.DiscordWebhookURL == "" {
+		slog.Warn("'discord_webhook_url' is missing. The bot will fallback to standard messages without player avatars.")
+	}
 
-		if bridge.DiscordChatChannelID == "" {
-			slog.Warn("'discord_chat_channel_id' is missing. The bot has nowhere to send messages!", "bridge", bridgeName)
-		}
+	if c.Server.DiscordChatChannelID == "" {
+		slog.Warn("'discord_chat_channel_id' is missing. The bot has nowhere to send messages!")
+	}
 
-		// Regex Validation
-		if bridge.RegexParsers.Chat == "" {
-			slog.Warn("'regex_parsers.chat' is empty. In-game chat will NOT be forwarded to Discord.", "bridge", bridgeName)
-		}
-		if bridge.RegexParsers.Join == "" {
-			slog.Warn("'regex_parsers.join' is empty. Join events will be ignored.", "bridge", bridgeName)
-		}
-		if bridge.RegexParsers.Leave == "" {
-			slog.Warn("'regex_parsers.leave' is empty. Leave events will be ignored.", "bridge", bridgeName)
-		}
+	// Regex Validation
+	if c.Server.RegexParsers.Chat == "" {
+		slog.Warn("'regex_parsers.chat' is empty. In-game chat will NOT be forwarded to Discord.")
+	}
+	if c.Server.RegexParsers.Join == "" {
+		slog.Warn("'regex_parsers.join' is empty. Join events will be ignored.")
+	}
+	if c.Server.RegexParsers.Leave == "" {
+		slog.Warn("'regex_parsers.leave' is empty. Leave events will be ignored.")
 	}
 
 	return nil
