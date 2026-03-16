@@ -16,6 +16,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const SYSTEM_USERNAME = "System"
+
 // Message is a single unit of content to be sent to Discord.
 // Username and AvatarURL are used only when sending via webhook;
 // they are silently ignored when falling back to the bot client.
@@ -382,7 +384,7 @@ func formatGroup(group []Message, maxLen int) []string {
 	}
 	joined := strings.Join(lines, "\n")
 
-	if group[0].Username == "" {
+	if group[0].Username == "" || group[0].Username == SYSTEM_USERNAME {
 		joined = "```\n" + joined + "\n```"
 	}
 
