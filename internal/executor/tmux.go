@@ -18,10 +18,6 @@ func SendCommand(ctx context.Context, sessionName string, windowIndex int, paneI
 	// Format the Target Route
 	target := fmt.Sprintf("%s:%d.%d", sessionName, windowIndex, paneIndex)
 
-	// ==========================================
-	// Native Execution (Split into two steps)
-	// ==========================================
-
 	// STEP 1: Type the literal text (-l flag)
 	typeCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-t", target, "-l", command)
 	output, err := typeCmd.CombinedOutput()

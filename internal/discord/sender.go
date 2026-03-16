@@ -12,7 +12,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/disgo/webhook"
-	"github.com/disgoorg/snowflake/v2"
+	snowflake "github.com/disgoorg/snowflake/v2"
 	"golang.org/x/time/rate"
 )
 

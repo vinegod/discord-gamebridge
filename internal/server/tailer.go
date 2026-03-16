@@ -1,4 +1,4 @@
-package bridge
+package server
 
 import (
 	"context"
@@ -13,14 +13,10 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/discord"
 )
 
-// StartTailer begins tailing the bridge's log file and routes parsed
+// StartTailer begins tailing the server's log file and routes parsed
 // lines to the appropriate Discord channel via the provided Sender.
-//
-// The Sender is responsible for rate limiting, batching, retrying, and
-// choosing between webhook and bot-client delivery — the tailer does
-// not need to know which transport is in use.
-func StartTailer(ctx context.Context, bridgeCfg config.BridgeConfig, sender *discord.Sender) error {
-	t, err := tail.TailFile(bridgeCfg.LogFilePath, tail.Config{
+func StartTailer(ctx context.Context, serverCfg config.ServerConfig, sender *discord.Sender) error {
+	t, err := tail.TailFile(serverCfg.LogFilePath, tail.Config{
 		Follow:   true,
 		ReOpen:   true,
 		Poll:     true,
@@ -28,21 +24,24 @@ func StartTailer(ctx context.Context, bridgeCfg config.BridgeConfig, sender *dis
 		Logger:   tail.DiscardingLogger,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to tail log file %s: %w", bridgeCfg.LogFilePath, err)
+		return fmt.Errorf("failed to tail log file %s: %w", serverCfg.LogFilePath, err)
 	}
 
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
-				slog.Info("[bridge/tailer] stopping", "file", bridgeCfg.LogFilePath)
-				t.Stop()
+				slog.Info("[tailer] stopping", "file", serverCfg.LogFilePath)
+				err := t.Stop()
+				if err != nil {
+					slog.Error("Failed to stop tailer.", "Error", err)
+				}
 				return
 
 			case line, ok := <-t.Lines:
 				if !ok {
-					slog.Error("[bridge/tailer] tail channel closed",
-						"file", bridgeCfg.LogFilePath,
+					slog.Error("[tailer] tail channel closed",
+						"file", serverCfg.LogFilePath,
 						"reason", t.Err(),
 					)
 					return
@@ -50,7 +49,7 @@ func StartTailer(ctx context.Context, bridgeCfg config.BridgeConfig, sender *dis
 				if line == nil || line.Err != nil {
 					continue
 				}
-				processLogLine(line.Text, bridgeCfg, sender)
+				processLogLine(line.Text, serverCfg, sender)
 			}
 		}
 	}()
@@ -60,27 +59,21 @@ func StartTailer(ctx context.Context, bridgeCfg config.BridgeConfig, sender *dis
 
 // processLogLine parses a single log line against the bridge's compiled
 // regexes and enqueues an appropriate Message on the Sender.
-func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sender) {
+func processLogLine(line string, config config.ServerConfig, sender *discord.Sender) {
 	cleanLine := strings.TrimSpace(line)
 	if cleanLine == "" {
 		return
 	}
 
-	if bridge.CompiledIgnore != nil && bridge.CompiledIgnore.MatchString(cleanLine) {
+	if config.CompiledIgnore != nil && config.CompiledIgnore.MatchString(cleanLine) {
 		return
 	}
 
 	// 1. In-game chat: <PlayerName> message
-	if bridge.CompiledChat != nil {
-		if groups := extractGroups(bridge.CompiledChat, cleanLine); groups != nil {
+	if config.CompiledChat != nil {
+		if groups := extractGroups(config.CompiledChat, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			message := strings.TrimSpace(groups["message"])
-
-			for _, ignored := range bridge.IgnoreChatNames {
-				if strings.EqualFold(player, ignored) {
-					return
-				}
-			}
 
 			sender.Send(discord.Message{
 				Content:  message,
@@ -91,8 +84,8 @@ func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sen
 	}
 
 	// 2. Player join
-	if bridge.CompiledJoin != nil {
-		if groups := extractGroups(bridge.CompiledJoin, cleanLine); groups != nil {
+	if config.CompiledJoin != nil {
+		if groups := extractGroups(config.CompiledJoin, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			sender.Send(discord.Message{
 				Content:  fmt.Sprintf("🟢 **%s** joined the server.", player),
@@ -103,8 +96,8 @@ func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sen
 	}
 
 	// 3. Player leave
-	if bridge.CompiledLeave != nil {
-		if groups := extractGroups(bridge.CompiledLeave, cleanLine); groups != nil {
+	if config.CompiledLeave != nil {
+		if groups := extractGroups(config.CompiledLeave, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			sender.Send(discord.Message{
 				Content:  fmt.Sprintf("🔴 **%s** left the server.", player),
@@ -115,7 +108,7 @@ func processLogLine(line string, bridge config.BridgeConfig, sender *discord.Sen
 	}
 
 	// 4. Other console logs
-	if bridge.CompiledConsole != nil && bridge.CompiledConsole.MatchString(cleanLine) {
+	if config.CompiledConsole != nil && config.CompiledConsole.MatchString(cleanLine) {
 		sender.Send(discord.Message{
 			Content:  cleanLine,
 			Username: discord.SYSTEM_USERNAME,
