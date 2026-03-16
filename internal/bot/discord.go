@@ -22,7 +22,7 @@ type BotWrapper struct {
 	ctx        context.Context
 }
 
-func NewBot(ctx context.Context, cfg config.Config) (*BotWrapper, error) {
+func NewBot(ctx context.Context, cfg config.Config) (*BotWrapper, error) { //nolint:gocritic // reason: config is intentionally passed by value
 	b := &BotWrapper{Config: cfg, ctx: ctx}
 
 	client, err := disgo.New(cfg.Bot.Token,
@@ -66,13 +66,12 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 
 	switch cmdCfg.Type {
 	case config.CommandTypeTmux:
-		b.handleTmuxCommand(b.ctx, event, *cmdCfg)
+		b.handleTmuxCommand(b.ctx, event, cmdCfg)
 	case config.CommandTypeScript:
-		b.handleScriptCommand(b.ctx, event, *cmdCfg)
+		b.handleScriptCommand(b.ctx, event, cmdCfg)
 	default:
 		slog.Error("Unknown command type.", "Name", cmdCfg.Name, "Type", cmdCfg.Type)
 	}
-
 }
 
 // hasPermission checks User IDs and Role IDs against the config
@@ -99,7 +98,7 @@ func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCr
 }
 
 // handleTmuxCommand processes and routes commands to gotmux
-func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg config.CommandConfig) {
+func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
 	data := event.SlashCommandInteractionData()
 
 	finalCmd := cmdCfg.Template
@@ -131,7 +130,7 @@ func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.Applic
 }
 
 // handleScriptCommand parses arguments and triggers local shell scripts
-func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg config.CommandConfig) {
+func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
 	_ = event.DeferCreateMessage(false)
 
 	// Pre-load the static arguments from YAML
@@ -173,10 +172,9 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 
 // SyncCommands reads the YAML config and publishes the Slash Commands to the Discord API
 func (b *BotWrapper) SyncCommands() error {
-	var appCommands []discord.ApplicationCommandCreate
+	appCommands := make([]discord.ApplicationCommandCreate, len(b.Config.Commands))
 
-	for _, cmd := range b.Config.Commands {
-
+	for _, cmd := range b.Config.Commands { //nolint:gocritic // reason: TODO: refactor command structures
 		var options []discord.ApplicationCommandOption
 
 		// Convert YAML arguments into Discord UI options

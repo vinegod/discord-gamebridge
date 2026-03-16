@@ -20,9 +20,8 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 	}
 
 	if event.Message.ChannelID.String() == b.Config.Server.DiscordChatChannelID {
-
 		// Resolve mentions and sanitize the raw input
-		cleanText := resolveMentions(event.Message)
+		cleanText := resolveMentions(&event.Message)
 		safeMessage := sanitizeChat(cleanText)
 
 		// Don't send empty messages (e.g., if the user only posted an image or newlines)
@@ -31,7 +30,7 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 		}
 
 		// Get a safe representation of the Author's name
-		authorName := getSafeName(event.Message.Author)
+		authorName := getSafeName(&event.Message.Author)
 
 		gameCommand := b.Config.Server.ChatTemplate
 		gameCommand = strings.ReplaceAll(gameCommand, "{{.user}}", authorName)
@@ -46,13 +45,12 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 			slog.Error("Failed to send chat to tmux.", "Error", err)
 		}
 		return
-
 	}
 }
 
 // getSafeName removes emojis and unsupported symbols from a username.
 // If the resulting name is completely empty, it falls back to the user's Discord ID.
-func getSafeName(user discord.User) string {
+func getSafeName(user *discord.User) string {
 	var name string
 	if user.GlobalName != nil && *user.GlobalName != "" {
 		name = *user.GlobalName
@@ -75,14 +73,14 @@ func getSafeName(user discord.User) string {
 }
 
 // resolveMentions replaces <@ID> with @Username (or @ID if the username is unprintable)
-func resolveMentions(msg discord.Message) string {
+func resolveMentions(msg *discord.Message) string {
 	content := msg.Content
 
 	for _, user := range msg.Mentions {
 		idTag1 := "<@" + user.ID.String() + ">"
 		idTag2 := "<@!" + user.ID.String() + ">"
 
-		safeName := getSafeName(user)
+		safeName := getSafeName(&user)
 		nameTag := "@" + safeName
 
 		content = strings.ReplaceAll(content, idTag1, nameTag)

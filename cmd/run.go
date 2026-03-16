@@ -77,7 +77,7 @@ func Run() {
 	}
 	// One Sender per bridge: owns rate limiting, batching, and transport
 	// selection (webhook → bot fallback). The tailer just calls Send().
-	sender := discord.NewSender(discord.SenderConfig{
+	sender := discord.NewSender(&discord.SenderConfig{
 		ChannelID:     channelID,
 		WebhookClient: webhookClient,
 		BotClient:     discordBot.Client,
@@ -95,7 +95,7 @@ func Run() {
 		senders = append(senders, sender)
 	}
 
-	if err := server.StartTailer(ctx, cfg.Server, sender); err != nil {
+	if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
 		slog.Error("Failed to start tailer", "error", err)
 	} else {
 		slog.Info("Started log tailer",

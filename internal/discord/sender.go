@@ -126,7 +126,7 @@ func (c *SenderConfig) applyDefaults() {
 //  3. workers exit via "for range work" once work is closed and empty
 //  4. wg.Wait()           returns only after batcher + all workers exit
 type Sender struct {
-	cfg     SenderConfig
+	cfg     *SenderConfig
 	limiter *rate.Limiter
 
 	inbox  chan Message   // Send() enqueues here; batcher reads
@@ -139,7 +139,7 @@ type Sender struct {
 }
 
 // NewSender creates a configured Sender. Call Start() before calling Send().
-func NewSender(cfg SenderConfig) *Sender {
+func NewSender(cfg *SenderConfig) *Sender {
 	cfg.applyDefaults()
 
 	// Convert the human-friendly (limit, window) pair into the tokens/second
