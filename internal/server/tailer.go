@@ -106,9 +106,16 @@ func processLogLine(line string, cfg *config.ServerConfig, sender *discord.Sende
 		}
 	}
 
-	// TODO: add events
+	// 4. Game Events
+	if cfg.CompiledEvents != nil && cfg.CompiledEvents.MatchString(cleanLine) {
+		sender.Send(discord.Message{
+			Content:  cleanLine,
+			Username: discord.SystemUsername,
+		})
+		return
+	}
 
-	// 4. Other console logs
+	// 5. Other console logs
 	if cfg.CompiledConsole != nil && cfg.CompiledConsole.MatchString(cleanLine) {
 		sender.Send(discord.Message{
 			Content:  cleanLine,
