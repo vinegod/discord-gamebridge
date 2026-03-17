@@ -29,6 +29,12 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 			return
 		}
 
+		const maxGameChatLength = 200
+		runes := []rune(safeMessage)
+		if len(runes) > maxGameChatLength {
+			safeMessage = string(runes[:maxGameChatLength])
+		}
+
 		// Get a safe representation of the Author's name
 		authorName := getSafeName(&event.Message.Author)
 

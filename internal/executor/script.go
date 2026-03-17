@@ -3,6 +3,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -66,7 +67,7 @@ func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string
 	// TODO: Check G204
 	cmd := exec.CommandContext(ctx, realScriptPath, args...) // #nosec G204
 	output, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return string(output), fmt.Errorf("script timed out: %w", ctx.Err())
 	}
 	if err != nil {

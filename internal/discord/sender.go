@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const SYSTEM_USERNAME = "System"
+const SystemUsername = "System"
 
 // Message is a single unit of content to be sent to Discord.
 // Username and AvatarURL are used only when sending via webhook;
@@ -163,7 +163,7 @@ func (s *Sender) Start(ctx context.Context) {
 	s.wg.Add(1 + s.cfg.Workers)
 	go s.batcher()
 	for i := range s.cfg.Workers {
-		go s.worker(i)
+		go s.worker(ctx, i)
 	}
 }
 
@@ -242,7 +242,7 @@ func (s *Sender) batcher() {
 // It exits cleanly when the work channel is closed and fully drained.
 // The id is used only to annotate log lines so individual workers are
 // distinguishable when debugging throughput or retry storms.
-func (s *Sender) worker(id int) {
+func (s *Sender) worker(ctx context.Context, id int) {
 	defer s.wg.Done()
 
 	log := slog.With("worker", id, "channel", s.cfg.ChannelID)
@@ -251,17 +251,13 @@ func (s *Sender) worker(id int) {
 		for _, group := range groupByUsername(batch) {
 			for _, chunk := range formatGroup(group, s.cfg.MaxMessageLength) {
 				// Block until the shared rate limiter grants a token.
-				// Using context.Background() means we wait as long as needed
-				// rather than dropping messages under load.
-				if err := s.limiter.Wait(context.Background()); err != nil {
-					// Only occurs if context is cancelled or burst is exceeded,
-					// neither of which should happen with Background() and a
-					// valid config.
+				if err := s.limiter.Wait(ctx); err != nil {
+					// Only occurs if context is cancelled or burst is exceeded
 					log.Error("rate limiter error, skipping chunk", "error", err)
 					continue
 				}
 
-				if err := s.sendWithRetry(log, group[0], chunk); err != nil {
+				if err := s.sendWithRetry(ctx, log, group[0], chunk); err != nil {
 					log.Error("failed to deliver message",
 						"error", err,
 						"username", group[0].Username,
@@ -276,7 +272,7 @@ func (s *Sender) worker(id int) {
 
 // sendWithRetry attempts to deliver one formatted chunk, retrying on
 // transient errors and honouring Discord's Retry-After on 429 responses.
-func (s *Sender) sendWithRetry(log *slog.Logger, representative Message, content string) error {
+func (s *Sender) sendWithRetry(ctx context.Context, log *slog.Logger, representative Message, content string) error {
 	var lastErr error
 
 	for attempt := range s.cfg.MaxRetries + 1 {
@@ -303,7 +299,7 @@ func (s *Sender) sendWithRetry(log *slog.Logger, representative Message, content
 			time.Sleep(retryAfter)
 			// Re-acquire a token after the forced sleep so the limiter's
 			// internal state stays consistent with actual API calls made.
-			_ = s.limiter.Wait(context.Background())
+			_ = s.limiter.Wait(ctx)
 			continue
 		}
 
@@ -384,7 +380,7 @@ func formatGroup(group []Message, maxLen int) []string {
 	}
 	joined := strings.Join(lines, "\n")
 
-	if group[0].Username == "" || group[0].Username == SYSTEM_USERNAME {
+	if group[0].Username == "" || group[0].Username == SystemUsername {
 		joined = "```\n" + joined + "\n```"
 	}
 

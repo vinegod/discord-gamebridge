@@ -59,19 +59,19 @@ func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender *di
 
 // processLogLine parses a single log line against the bridge's compiled
 // regexes and enqueues an appropriate Message on the Sender.
-func processLogLine(line string, config *config.ServerConfig, sender *discord.Sender) {
+func processLogLine(line string, cfg *config.ServerConfig, sender *discord.Sender) {
 	cleanLine := strings.TrimSpace(line)
 	if cleanLine == "" {
 		return
 	}
 
-	if config.CompiledIgnore != nil && config.CompiledIgnore.MatchString(cleanLine) {
+	if cfg.CompiledIgnore != nil && cfg.CompiledIgnore.MatchString(cleanLine) {
 		return
 	}
 
 	// 1. In-game chat: <PlayerName> message
-	if config.CompiledChat != nil {
-		if groups := extractGroups(config.CompiledChat, cleanLine); groups != nil {
+	if cfg.CompiledChat != nil {
+		if groups := extractGroups(cfg.CompiledChat, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			message := strings.TrimSpace(groups["message"])
 
@@ -84,8 +84,8 @@ func processLogLine(line string, config *config.ServerConfig, sender *discord.Se
 	}
 
 	// 2. Player join
-	if config.CompiledJoin != nil {
-		if groups := extractGroups(config.CompiledJoin, cleanLine); groups != nil {
+	if cfg.CompiledJoin != nil {
+		if groups := extractGroups(cfg.CompiledJoin, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			sender.Send(discord.Message{
 				Content:  fmt.Sprintf("🟢 **%s** joined the server.", player),
@@ -96,8 +96,8 @@ func processLogLine(line string, config *config.ServerConfig, sender *discord.Se
 	}
 
 	// 3. Player leave
-	if config.CompiledLeave != nil {
-		if groups := extractGroups(config.CompiledLeave, cleanLine); groups != nil {
+	if cfg.CompiledLeave != nil {
+		if groups := extractGroups(cfg.CompiledLeave, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			sender.Send(discord.Message{
 				Content:  fmt.Sprintf("🔴 **%s** left the server.", player),
@@ -108,10 +108,10 @@ func processLogLine(line string, config *config.ServerConfig, sender *discord.Se
 	}
 
 	// 4. Other console logs
-	if config.CompiledConsole != nil && config.CompiledConsole.MatchString(cleanLine) {
+	if cfg.CompiledConsole != nil && cfg.CompiledConsole.MatchString(cleanLine) {
 		sender.Send(discord.Message{
 			Content:  cleanLine,
-			Username: discord.SYSTEM_USERNAME,
+			Username: discord.SystemUsername,
 		})
 		return
 	}
