@@ -1,4 +1,4 @@
-// App configuration file
+// Package config defines the application's configuration structures and loading logic.
 package config
 
 import (
@@ -20,7 +20,7 @@ type Config struct {
 	Commands []CommandConfig `yaml:"commands"`
 }
 
-// Bot config
+// BotConfig holds Discord bot credentials and script execution policies.
 type BotConfig struct {
 	TokenEnvVar      string `yaml:"token_env_var"`
 	LogLevel         string `yaml:"log_level"`
@@ -28,7 +28,7 @@ type BotConfig struct {
 	Token            string `yaml:"-"`
 }
 
-// Server config
+// ServerConfig defines routing parameters, regex parsers, and tmux targets for a server.
 type ServerConfig struct {
 	TmuxSession string `yaml:"tmux_session"`
 	TmuxWindow  int    `yaml:"tmux_window"`
@@ -51,7 +51,7 @@ type ServerConfig struct {
 	CompiledIgnore  *regexp.Regexp `yaml:"-"`
 }
 
-// Regex patters for logs
+// RegexParsers holds raw regular expression strings for log matching.
 type RegexParsers struct {
 	Chat    string `yaml:"chat"`
 	Join    string `yaml:"join"`
@@ -67,7 +67,7 @@ const (
 	CommandTypeScript CommandType = "script"
 )
 
-// Command structure config
+// CommandConfig defines an executable slash command.
 type CommandConfig struct {
 	Name           string           `yaml:"name"`
 	Description    string           `yaml:"description"`
@@ -80,7 +80,7 @@ type CommandConfig struct {
 	Arguments      []ArgumentConfig `yaml:"arguments"`
 }
 
-// Config for allowed roles and users
+// PermissionConfig defines access control lists for a command.
 type PermissionConfig struct {
 	AllowedRoles []string `yaml:"allowed_roles"`
 	AllowedUsers []string `yaml:"allowed_users"`
@@ -117,9 +117,7 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// Load reads the YAML file, parses the .env, and validates the configuration.
 func Load(configPath string) (*Config, error) {
-	// Load .env file (ignoring error if it doesn't exist, as env vars might be set in OS)
 	_ = godotenv.Load()
 
 	// TODO: Read from repo dir for now, add this option to CLI
@@ -135,7 +133,6 @@ func Load(configPath string) (*Config, error) {
 
 	cfg.applyDefaults()
 
-	// Load Discord Token
 	token := os.Getenv(cfg.Bot.TokenEnvVar)
 	if token == "" {
 		return nil, fmt.Errorf("critical: Discord token environment variable [%s] is empty", cfg.Bot.TokenEnvVar)
@@ -175,10 +172,7 @@ func Load(configPath string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Validate checks the loaded configuration for missing or invalid data before the bot starts.
 func (c *Config) Validate() error {
-	// Validate each enabled c.Server
-
 	slog.Info("Validating Server config")
 
 	if c.Server.ChatTemplate == "" {

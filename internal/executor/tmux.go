@@ -18,8 +18,9 @@ func SendCommand(ctx context.Context, sessionName string, windowIndex, paneIndex
 	// Format the Target Route
 	target := fmt.Sprintf("%s:%d.%d", sessionName, windowIndex, paneIndex)
 
-	// TODO: Check G204
-	// STEP 1: Type the literal text (-l flag)
+	// TODO: Check G204 issues here and below
+	// Because of issues with tmux we send commands in two steps:
+	// Step 1: Type the literal text
 	typeCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-t", target, "-l", command) // #nosec G204
 	output, err := typeCmd.CombinedOutput()
 	if err != nil {
@@ -27,7 +28,7 @@ func SendCommand(ctx context.Context, sessionName string, windowIndex, paneIndex
 		return fmt.Errorf("failed to type literal text into target '%s': %v (tmux output: %s)", target, err, errMsg)
 	}
 
-	// STEP 2: Press Enter (C-m)
+	// Step 2: Press Enter (C-m)
 	enterCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-t", target, "C-m") // #nosec G204
 	output, err = enterCmd.CombinedOutput()
 	if err != nil {

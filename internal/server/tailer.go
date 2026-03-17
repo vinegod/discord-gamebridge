@@ -57,8 +57,7 @@ func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender *di
 	return nil
 }
 
-// processLogLine parses a single log line against the bridge's compiled
-// regexes and enqueues an appropriate Message on the Sender.
+// processLogLine matches a single log line against compiled regexes and routes it to the sender.
 func processLogLine(line string, cfg *config.ServerConfig, sender *discord.Sender) {
 	cleanLine := strings.TrimSpace(line)
 	if cleanLine == "" {
@@ -106,6 +105,8 @@ func processLogLine(line string, cfg *config.ServerConfig, sender *discord.Sende
 			return
 		}
 	}
+
+	// TODO: add events
 
 	// 4. Other console logs
 	if cfg.CompiledConsole != nil && cfg.CompiledConsole.MatchString(cleanLine) {

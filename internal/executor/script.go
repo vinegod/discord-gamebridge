@@ -1,4 +1,4 @@
-// Package
+// Package executor provides functions for running system commands and shell scripts securely.
 package executor
 
 import (
@@ -35,13 +35,13 @@ func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string
 		return "", fmt.Errorf("failed to resolve absolute script path: %w", err)
 	}
 
-	// 3. Calculate the relative path from the allowed directory to the target script
+	// Calculate the relative path from the allowed directory to the target script
 	relPath, err := filepath.Rel(realAllowedDir, realScriptPath)
 	if err != nil {
 		return "", fmt.Errorf("could not calculate relative path for script: %w", err)
 	}
 
-	// 4. Ensure the relative path does not escape the jail
+	// Ensure the relative path does not escape the allowed directory
 	if strings.HasPrefix(relPath, ".."+string(filepath.Separator)) || relPath == ".." || relPath == "." {
 		slog.Debug("Script violation debug info",
 			"Allowed script path", realAllowedDir,
@@ -64,7 +64,7 @@ func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string
 		return "", fmt.Errorf("script is not executable: %s (run chmod +x)", realScriptPath)
 	}
 
-	// TODO: Check G204
+	// TODO: Check G204 issue here
 	cmd := exec.CommandContext(ctx, realScriptPath, args...) // #nosec G204
 	output, err := cmd.CombinedOutput()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {

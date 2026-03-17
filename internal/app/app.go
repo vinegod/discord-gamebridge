@@ -1,4 +1,4 @@
-// Package app wires together all components and manages the application lifecycle.
+// Package app wires together the configuration, Discord bot, and background services.
 package app
 
 import (
@@ -17,10 +17,8 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/server"
 )
 
-// Run app
+// Run initializes the application and blocks until a shutdown signal is received.
 func Run() error {
-	// ── Configuration
-
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -34,11 +32,9 @@ func Run() error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	// ── Root context
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// ── Discord bot
 	slog.Info("initializing Discord bot")
 
 	discordBot, err := bot.NewBot(ctx, *cfg)
@@ -63,8 +59,6 @@ func Run() error {
 	}
 	slog.Info("slash commands synchronized")
 
-	// ── Message sender
-
 	sender, err := buildSender(ctx, cfg, discordBot)
 	if err != nil {
 		return fmt.Errorf("build sender: %w", err)
@@ -74,14 +68,10 @@ func Run() error {
 		sender.Stop()
 	}()
 
-	// ── Log tailer
-
 	if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
 		return fmt.Errorf("start tailer: %w", err)
 	}
 	slog.Info("log tailer started", "file", cfg.Server.LogFilePath)
-
-	// ── Block until shutdown signal
 
 	slog.Info("bot is running — press Ctrl+C to quit")
 	<-ctx.Done()
@@ -126,8 +116,7 @@ func buildSender(ctx context.Context, cfg *config.Config, discordBot *bot.BotWra
 	return sender, nil
 }
 
-// configureLogger sets the global slog handler to the requested level.
-// Falls back to Info if the level string is invalid.
+// configureLogger sets the global slog handler, defaulting to Info if the provided level is invalid.
 func configureLogger(levelStr string) {
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(levelStr)); err != nil {
