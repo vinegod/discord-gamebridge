@@ -52,7 +52,7 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 
 	cmdCfg, ok := b.commandMap[commandName]
 	if !ok {
-		slog.Warn("Command", commandName, " not found")
+		slog.Warn("Command not found", "name", commandName)
 		return
 	}
 
@@ -174,11 +174,11 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 func (b *BotWrapper) SyncCommands() error {
 	appCommands := make([]discord.ApplicationCommandCreate, len(b.Config.Commands))
 
-	for _, cmd := range b.Config.Commands { //nolint:gocritic // reason: TODO: refactor command structures
+	for idx := range b.Config.Commands {
 		var options []discord.ApplicationCommandOption
 
 		// Convert YAML arguments into Discord UI options
-		for _, arg := range cmd.Arguments {
+		for _, arg := range b.Config.Commands[idx].Arguments {
 			if arg.Type == config.VariableTypeBool {
 				options = append(options, discord.ApplicationCommandOptionBool{
 					Name:        arg.Name,
@@ -195,13 +195,11 @@ func (b *BotWrapper) SyncCommands() error {
 		}
 
 		// Build the Discord command payload
-		slashCmd := discord.SlashCommandCreate{
-			Name:        cmd.Name,
-			Description: cmd.Description,
+		appCommands[idx] = discord.SlashCommandCreate{
+			Name:        b.Config.Commands[idx].Name,
+			Description: b.Config.Commands[idx].Description,
 			Options:     options,
 		}
-
-		appCommands = append(appCommands, slashCmd)
 	}
 
 	slog.Info("syncing commands to Discord API", "count", len(appCommands))
