@@ -1,0 +1,96 @@
+# BOT settings
+bot:
+  token_env_var: "DISCORD_TOKEN"
+  log_level: "info"
+
+# Shared Server settings
+x-shared:
+  # Session name in tmux
+  session: &session "terraria_server"
+
+  admin_permissions: &admin_perms
+    allowed_roles: ["YOUR_ADMIN_ROLE_ID"]
+    allowed_users: ["YOUR_USER_ID"]
+
+  terraria_paths: &server_args
+    - *session
+    - "/home/user/terraria_server/1456/Linux/terraria_server"
+    - "/home/user/terraria_server/serverconfig.txt"
+    - "/home/user/terraria_server/logs/server.log"
+
+# Server settings
+server:
+  tmux_session: *session
+  tmux_window: 1
+  tmux_pane: 1
+
+  # Public channel for players
+  discord_chat_channel_id: "12345678"
+
+  # Max time to send message. If time exceeds - command cancels.
+  chat_timeout: 5s
+  discord_webhook_url: "DISCORD_WEBHOOK"
+
+  # Log tailing for game -> discord
+  log_file_path: "/home/user/terraria_server/logs/server.log"
+
+  chat_template: "say {{.player}} {{.reason}}"
+  regex_parsers:
+    # Matches: <PlayerName> Hello world!
+    chat: '^<(?P<player>[^>]+)> (?P<message>.*)$'
+    # Matches: PlayerName has joined.
+    join: '^(?P<player>[^\s]+) has joined\.$'
+    # Matches: PlayerName has left.
+    leave: '^(?P<player>[^\s]+) has left\.$'
+    # Matches different console logs
+    console: '^(Terraria Server v|Listening on port|World saved).*'
+    # Matches: Blood moon is rising and other events.
+    events: '.*(has awoken!|have been defeated!|is approaching!|is rising\.\.\.|falling from the sky!)$'
+    # Matches: <Server> Hello world! This text won't be send to discord channel.
+    ignore: '^<Server> .*$'
+
+# Command registry
+commands:
+  - name: "kick"
+    description: "Kicks a player from the Terraria server"
+    type: "tmux"
+    script_timeout: 10s
+    # Using a template prevents command injection. Go will safely substitute variables here.
+    template: "kick {{.player}} {{.reason}}"
+    permissions: *admin_perms
+    arguments:
+      - name: "player"
+        type: "string"
+        description: "Exact in-game name"
+        required: true
+      - name: "reason"
+        type: "string"
+        description: "Reason for kick"
+        required: false
+  # Start server
+  - name: "start"
+    description: "Boots the Terraria server"
+    type: "script"
+    target_bridge: "terraria_main"
+    script_path: "/home/user/scripts/start.sh"
+    script_timeout: 25s
+    permissions: *admin_perms
+    static_args: *server_args
+
+  # Stop server
+  - name: "stop"
+    description: "Safely saves and stops the Terraria server"
+    type: "script"
+    script_path: "/home/user/scripts/stop.sh"
+    script_timeout: 65s
+    permissions: *admin_perms
+    static_args: *session
+
+  # Restart server
+  - name: "restart"
+    description: "Safely restarts the Terraria server"
+    type: "script"
+    script_path: "/home/user/scripts/restart.sh"
+    script_timeout: 75s
+    permissions: *admin_perms
+    static_args: *server_args
