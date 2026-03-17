@@ -1,7 +1,15 @@
 package main
 
-import "github.com/vinegod/discordgamebridge/cmd"
+import (
+	"log/slog"
+	"os"
+
+	"github.com/vinegod/discordgamebridge/internal/app"
+)
 
 func main() {
-	cmd.Run()
+	if err := app.Run(); err != nil {
+		slog.Error("fatal error", "error", err)
+		os.Exit(1)
+	}
 }
