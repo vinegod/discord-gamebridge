@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"time"
 
+	snowflake "github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
 	yaml "gopkg.in/yaml.v3"
 )
@@ -204,4 +205,12 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (s *ServerConfig) ParsedChatChannelID() (snowflake.ID, error) {
+	id, err := snowflake.Parse(s.DiscordChatChannelID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid discord_chat_channel_id %q: %w", s.DiscordChatChannelID, err)
+	}
+	return id, nil
 }
