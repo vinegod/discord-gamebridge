@@ -133,9 +133,6 @@ type Sender struct {
 	work   chan []Message // batcher dispatches here; workers read
 	stopCh chan struct{}  // closed by Stop() to signal the batcher
 	wg     sync.WaitGroup
-
-	ctx    context.Context
-	cancel context.CancelFunc
 }
 
 // NewSender creates a configured Sender. Call Start() before calling Send().
@@ -159,11 +156,11 @@ func NewSender(cfg *SenderConfig) *Sender {
 // Start launches the batcher and all worker goroutines.
 // Must be called exactly once before Send().
 func (s *Sender) Start(ctx context.Context) {
-	s.ctx, s.cancel = context.WithCancel(ctx)
+	workerCtx := context.WithoutCancel(ctx)
 	s.wg.Add(1 + s.cfg.Workers)
 	go s.batcher()
 	for i := range s.cfg.Workers {
-		go s.worker(ctx, i)
+		go s.worker(workerCtx, i)
 	}
 }
 
@@ -411,14 +408,6 @@ func splitMessage(s string, limit int) []string {
 
 // parseRetryAfter extracts a Retry-After duration from a Discord error.
 // Returns 0 if the error is not a 429.
-//
-// TODO: replace the string check with a proper type assertion once the
-// exact disgo error type is confirmed:
-//
-//	var restErr *rest.Error
-//	if errors.As(err, &restErr) && restErr.Response.StatusCode == 429 {
-//	    return time.Duration(restErr.RetryAfter * float64(time.Second))
-//	}
 func parseRetryAfter(err error) time.Duration {
 	if err == nil {
 		return 0
