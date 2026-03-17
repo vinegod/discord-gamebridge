@@ -27,53 +27,17 @@ type Message struct {
 	AvatarURL string // optional: avatar override (webhook only)
 }
 
-// SenderConfig holds all tunables for a Sender instance.
-// Zero values are replaced with sensible defaults by NewSender.
+// SenderConfig defines the tuning parameters for the batched message dispatcher.
 type SenderConfig struct {
-	// Target Discord channel. Required for the bot-client fallback path.
-	ChannelID snowflake.ID
-
-	// Optional: when set, messages are delivered as rich webhook messages
-	// (custom username/avatar per message). If nil, BotClient is used.
-	WebhookClient *webhook.Client
-
-	// Required: used as fallback when WebhookClient is nil.
-	BotClient *bot.Client
-
-	// FlushInterval is how long the batcher waits to accumulate lines
-	// before dispatching them to a worker as a single batch.
-	// Default: 500ms.
-	FlushInterval time.Duration
-
-	// MaxBatchLines forces an early flush when the batch reaches this size,
-	// regardless of FlushInterval. Prevents single large bursts from being
-	// held too long.
-	// Default: 15.
-	MaxBatchLines int
-
-	// Workers is the number of goroutines pulling from the work queue and
-	// sending to Discord. Each worker acquires a rate-limiter token before
-	// every API call, so additional workers increase throughput only when
-	// the limiter allows it — they don't bypass the rate limit.
-	// Default: 2.
-	Workers int
-
-	// RateLimit is the number of messages allowed per RateWindow.
-	// Discord's documented limit is 5 messages per 5 seconds per channel.
-	// Default: 5.
-	RateLimit int
-
-	// RateWindow is the time window for RateLimit.
-	// Default: 5 seconds.
-	RateWindow time.Duration
-
-	// MaxRetries is how many times a worker retries a failed send before
-	// dropping the chunk and logging an error.
-	// Default: 3.
-	MaxRetries int
-
-	// MaxMessageLength is the rune cap per Discord message.
-	// Default: 1900 (leaves headroom for markdown added during formatting).
+	ChannelID        snowflake.ID
+	WebhookClient    *webhook.Client
+	BotClient        *bot.Client
+	FlushInterval    time.Duration
+	MaxBatchLines    int
+	Workers          int
+	RateLimit        int
+	RateWindow       time.Duration
+	MaxRetries       int
 	MaxMessageLength int
 }
 
@@ -101,47 +65,19 @@ func (c *SenderConfig) applyDefaults() {
 	}
 }
 
-// Sender is a goroutine-safe, rate-limited, batching Discord message sender.
-//
-// Architecture:
-//
-//	Send()
-//	  │
-//	  ▼
-//	inbox chan Message          (buffered 256, non-blocking)
-//	  │
-//	  │  [batcher goroutine]
-//	  │  Collects messages for FlushInterval or until MaxBatchLines,
-//	  │  then dispatches a []Message batch to the work queue.
-//	  ▼
-//	work chan []Message         (buffered Workers*4)
-//	  │
-//	  ├── [worker 0] ─┐
-//	  ├── [worker 1] ─┤── limiter.Wait() → doSend() → retry on 429
-//	  └── [worker N] ─┘
-//
-// Shutdown (Stop):
-//  1. close(stopCh)       signals batcher to stop accepting new messages
-//  2. batcher drains inbox, dispatches remaining batches, then close(work)
-//  3. workers exit via "for range work" once work is closed and empty
-//  4. wg.Wait()           returns only after batcher + all workers exit
+// Sender is a goroutine-safe, rate-limited, batching Discord message dispatcher.
 type Sender struct {
 	cfg     *SenderConfig
 	limiter *rate.Limiter
 
-	inbox  chan Message   // Send() enqueues here; batcher reads
-	work   chan []Message // batcher dispatches here; workers read
-	stopCh chan struct{}  // closed by Stop() to signal the batcher
+	inbox  chan Message
+	work   chan []Message
+	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
-// NewSender creates a configured Sender. Call Start() before calling Send().
 func NewSender(cfg *SenderConfig) *Sender {
 	cfg.applyDefaults()
-
-	// Convert the human-friendly (limit, window) pair into the tokens/second
-	// rate that rate.Limiter expects.
-	// Example: 5 messages / 5 seconds → Every(1s), burst 5.
 	tokenRate := rate.Every(cfg.RateWindow / time.Duration(cfg.RateLimit))
 
 	return &Sender{
@@ -153,8 +89,7 @@ func NewSender(cfg *SenderConfig) *Sender {
 	}
 }
 
-// Start launches the batcher and all worker goroutines.
-// Must be called exactly once before Send().
+// Start launches the batcher and worker goroutines.
 func (s *Sender) Start(ctx context.Context) {
 	workerCtx := context.WithoutCancel(ctx)
 	s.wg.Add(1 + s.cfg.Workers)
@@ -164,16 +99,13 @@ func (s *Sender) Start(ctx context.Context) {
 	}
 }
 
-// Stop signals the batcher to stop, then blocks until all workers have
-// finished processing in-flight batches. Messages already in the inbox
-// when Stop() is called are still delivered before returning.
+// Stop closes the internal queues and blocks until pending messages are sent.
 func (s *Sender) Stop() {
 	close(s.stopCh)
 	s.wg.Wait()
 }
 
-// Send enqueues a message for batched delivery. It is non-blocking:
-// if the inbox is full the message is dropped and a warning is logged.
+// Send enqueues a message for delivery. It drops the message if the buffer is full.
 func (s *Sender) Send(msg Message) {
 	select {
 	case s.inbox <- msg:
@@ -185,11 +117,7 @@ func (s *Sender) Send(msg Message) {
 	}
 }
 
-// ── Internal goroutines ───────────────────────────────────────────────────────
-
 // batcher collects incoming Messages and dispatches batches to the work queue.
-// It is the sole writer to s.work and closes it on exit, which triggers the
-// workers' range loops to exit once all pending batches are processed.
 func (s *Sender) batcher() {
 	defer s.wg.Done()
 	defer close(s.work)
@@ -236,9 +164,6 @@ func (s *Sender) batcher() {
 }
 
 // worker pulls batches from the work queue and delivers them to Discord.
-// It exits cleanly when the work channel is closed and fully drained.
-// The id is used only to annotate log lines so individual workers are
-// distinguishable when debugging throughput or retry storms.
 func (s *Sender) worker(ctx context.Context, id int) {
 	defer s.wg.Done()
 
@@ -247,7 +172,6 @@ func (s *Sender) worker(ctx context.Context, id int) {
 	for batch := range s.work {
 		for _, group := range groupByUsername(batch) {
 			for _, chunk := range formatGroup(group, s.cfg.MaxMessageLength) {
-				// Block until the shared rate limiter grants a token.
 				if err := s.limiter.Wait(ctx); err != nil {
 					// Only occurs if context is cancelled or burst is exceeded
 					log.Error("rate limiter error, skipping chunk", "error", err)
@@ -265,10 +189,6 @@ func (s *Sender) worker(ctx context.Context, id int) {
 	}
 }
 
-// ── Send pipeline ─────────────────────────────────────────────────────────────
-
-// sendWithRetry attempts to deliver one formatted chunk, retrying on
-// transient errors and honouring Discord's Retry-After on 429 responses.
 func (s *Sender) sendWithRetry(ctx context.Context, log *slog.Logger, representative Message, content string) error {
 	var lastErr error
 
@@ -294,8 +214,6 @@ func (s *Sender) sendWithRetry(ctx context.Context, log *slog.Logger, representa
 				"attempt", attempt,
 			)
 			time.Sleep(retryAfter)
-			// Re-acquire a token after the forced sleep so the limiter's
-			// internal state stays consistent with actual API calls made.
 			_ = s.limiter.Wait(ctx)
 			continue
 		}
@@ -307,8 +225,7 @@ func (s *Sender) sendWithRetry(ctx context.Context, log *slog.Logger, representa
 	return fmt.Errorf("send failed after %d attempts: %w", s.cfg.MaxRetries, lastErr)
 }
 
-// doSend performs exactly one API call — webhook if available, bot otherwise.
-// Returns (retryAfter > 0, error) when Discord responds with 429.
+// doSend routes the API call to the webhook or bot client. Returns (retryAfter > 0, error) on HTTP 429.
 func (s *Sender) doSend(msg Message, content string) (time.Duration, error) {
 	if s.cfg.WebhookClient != nil {
 		return s.sendViaWebhook(msg, content)
@@ -342,11 +259,7 @@ func (s *Sender) sendViaBot(content string) (time.Duration, error) {
 	return 0, nil
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-// groupByUsername splits a flat message slice into runs of consecutive
-// messages sharing the same Username, so a player chatting quickly appears
-// as one grouped block in Discord rather than many individual messages.
+// groupByUsername splits a flat message slice into runs of consecutive messages
 func groupByUsername(msgs []Message) [][]Message {
 	if len(msgs) == 0 {
 		return nil
@@ -384,8 +297,7 @@ func formatGroup(group []Message, maxLen int) []string {
 	return splitMessage(joined, maxLen)
 }
 
-// splitRunes breaks s into chunks of at most maxLen runes.
-// Splitting by rune (not byte) prevents corrupting multi-byte UTF-8 sequences.
+// splitMessage breaks a string into chunks by rune count.
 func splitMessage(s string, limit int) []string {
 	var parts []string
 	var b strings.Builder

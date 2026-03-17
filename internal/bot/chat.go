@@ -12,7 +12,7 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/executor"
 )
 
-// onMessageCreate handles Two-Way Chat (Discord -> Game)
+// // onMessageCreate processes Discord messages and forwards them to the game console via tmux.
 func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 	// Ignore bots (prevents endless feedback loops if the bot reads its own messages)
 	if event.Message.Author.Bot {
@@ -20,11 +20,9 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 	}
 
 	if event.Message.ChannelID.String() == b.Config.Server.DiscordChatChannelID {
-		// Resolve mentions and sanitize the raw input
 		cleanText := resolveMentions(&event.Message)
 		safeMessage := sanitizeChat(cleanText)
 
-		// Don't send empty messages (e.g., if the user only posted an image or newlines)
 		if safeMessage == "" {
 			return
 		}
@@ -35,7 +33,6 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 			safeMessage = string(runes[:maxGameChatLength])
 		}
 
-		// Get a safe representation of the Author's name
 		authorName := getSafeName(&event.Message.Author)
 
 		gameCommand := b.Config.Server.ChatTemplate
@@ -45,7 +42,6 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 		ctx, cancel := context.WithTimeout(b.ctx, b.Config.Server.ChatTimeout)
 		defer cancel()
 
-		// Send to the multiplexer
 		err := executor.SendCommand(ctx, b.Config.Server.TmuxSession, b.Config.Server.TmuxWindow, b.Config.Server.TmuxPane, gameCommand)
 		if err != nil {
 			slog.Error("Failed to send chat to tmux.", "Error", err)

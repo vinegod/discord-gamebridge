@@ -15,6 +15,7 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/executor"
 )
 
+// BotWrapper encapsulates the Discord client and handles slash command routing and execution.
 type BotWrapper struct {
 	Client     *bot.Client
 	Config     config.Config
@@ -24,7 +25,6 @@ type BotWrapper struct {
 
 func NewBot(ctx context.Context, cfg config.Config) (*BotWrapper, error) { //nolint:gocritic // reason: config is intentionally passed by value
 	b := &BotWrapper{Config: cfg, ctx: ctx}
-
 	client, err := disgo.New(cfg.Bot.Token,
 		bot.WithGatewayConfigOpts(gateway.WithIntents(
 			gateway.IntentGuildMessages,
@@ -46,10 +46,8 @@ func NewBot(ctx context.Context, cfg config.Config) (*BotWrapper, error) { //nol
 	return b, nil
 }
 
-// onApplicationCommand routes incoming slash commands
 func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandInteractionCreate) {
 	commandName := event.Data.CommandName()
-
 	cmdCfg, ok := b.commandMap[commandName]
 	if !ok {
 		slog.Warn("Command not found", "name", commandName)
@@ -77,7 +75,6 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 // hasPermission checks User IDs and Role IDs against the config
 func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) bool {
 	userID := event.User().ID.String()
-
 	for _, allowedUser := range cmdCfg.Permissions.AllowedUsers {
 		if userID == allowedUser {
 			return true
@@ -97,10 +94,9 @@ func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCr
 	return false
 }
 
-// handleTmuxCommand processes and routes commands to gotmux
+// handleTmuxCommand formats and sends a command directly to the target tmux pane.
 func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
 	data := event.SlashCommandInteractionData()
-
 	finalCmd := cmdCfg.Template
 
 	for _, arg := range cmdCfg.Arguments {
@@ -129,14 +125,11 @@ func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.Applic
 	}
 }
 
-// handleScriptCommand parses arguments and triggers local shell scripts
+// handleScriptCommand parses arguments and triggers local shell scripts, responding with the output.
 func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
 	_ = event.DeferCreateMessage(false)
 
-	// Pre-load the static arguments from YAML
 	args := append([]string{}, cmdCfg.StaticArgs...)
-
-	// Append any dynamic arguments provided by the user in Discord
 	data := event.SlashCommandInteractionData()
 
 	for _, argConfig := range cmdCfg.Arguments {
@@ -170,14 +163,13 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 	})
 }
 
-// SyncCommands reads the YAML config and publishes the Slash Commands to the Discord API
+// SyncCommands registers the configured commands with the Discord API globally.
 func (b *BotWrapper) SyncCommands() error {
 	appCommands := make([]discord.ApplicationCommandCreate, len(b.Config.Commands))
 
 	for idx := range b.Config.Commands {
 		var options []discord.ApplicationCommandOption
 
-		// Convert YAML arguments into Discord UI options
 		for _, arg := range b.Config.Commands[idx].Arguments {
 			if arg.Type == config.VariableTypeBool {
 				options = append(options, discord.ApplicationCommandOptionBool{
@@ -194,7 +186,6 @@ func (b *BotWrapper) SyncCommands() error {
 			}
 		}
 
-		// Build the Discord command payload
 		appCommands[idx] = discord.SlashCommandCreate{
 			Name:        b.Config.Commands[idx].Name,
 			Description: b.Config.Commands[idx].Description,
@@ -203,8 +194,7 @@ func (b *BotWrapper) SyncCommands() error {
 	}
 
 	slog.Info("syncing commands to Discord API", "count", len(appCommands))
-
-	// Push the commands to Discord globally
 	_, err := b.Client.Rest.SetGlobalCommands(b.Client.ApplicationID, appCommands)
+
 	return err
 }
