@@ -48,6 +48,7 @@ type ServerConfig struct {
 	CompiledJoin    *regexp.Regexp `yaml:"-"`
 	CompiledLeave   *regexp.Regexp `yaml:"-"`
 	CompiledConsole *regexp.Regexp `yaml:"-"`
+	CompiledEvents  *regexp.Regexp `yaml:"-"`
 	CompiledIgnore  *regexp.Regexp `yaml:"-"`
 }
 
@@ -57,6 +58,7 @@ type RegexParsers struct {
 	Join    string `yaml:"join"`
 	Leave   string `yaml:"leave"`
 	Console string `yaml:"console"`
+	Events  string `yaml:"events"`
 	Ignore  string `yaml:"ignore"`
 }
 
@@ -160,6 +162,13 @@ func Load(configPath string) (*Config, error) {
 	cfg.Server.CompiledConsole, compileErr = regexp.Compile(cfg.Server.RegexParsers.Console)
 	if compileErr != nil {
 		return nil, fmt.Errorf("invalid console regex: %w", compileErr)
+	}
+
+	if cfg.Server.RegexParsers.Events != "" {
+		cfg.Server.CompiledEvents, compileErr = regexp.Compile(cfg.Server.RegexParsers.Events)
+		if compileErr != nil {
+			return nil, fmt.Errorf("invalid console regex: %w", compileErr)
+		}
 	}
 
 	if cfg.Server.RegexParsers.Ignore != "" {
