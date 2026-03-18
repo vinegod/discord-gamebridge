@@ -2,6 +2,7 @@
 bot:
   token_env_var: "DISCORD_TOKEN"
   log_level: "info"
+  allowed_script_dir: "/home/user/terraria_server/scripts"
 
 # Shared Server settings
 x-shared:
@@ -55,7 +56,6 @@ commands:
     description: "Kicks a player from the Terraria server"
     type: "tmux"
     script_timeout: 10s
-    # Using a template prevents command injection. Go will safely substitute variables here.
     template: "kick {{.player}} {{.reason}}"
     permissions: *admin_perms
     arguments:
@@ -67,12 +67,13 @@ commands:
         type: "string"
         description: "Reason for kick"
         required: false
+
   # Start server
   - name: "start"
     description: "Boots the Terraria server"
     type: "script"
     target_bridge: "terraria_main"
-    script_path: "/home/user/scripts/start.sh"
+    script_path: "start.sh"
     script_timeout: 25s
     permissions: *admin_perms
     static_args: *server_args
@@ -81,7 +82,7 @@ commands:
   - name: "stop"
     description: "Safely saves and stops the Terraria server"
     type: "script"
-    script_path: "/home/user/scripts/stop.sh"
+    script_path: "stop.sh"
     script_timeout: 65s
     permissions: *admin_perms
     static_args: *session
@@ -90,7 +91,7 @@ commands:
   - name: "restart"
     description: "Safely restarts the Terraria server"
     type: "script"
-    script_path: "/home/user/scripts/restart.sh"
+    script_path: "restart.sh"
     script_timeout: 75s
     permissions: *admin_perms
     static_args: *server_args
