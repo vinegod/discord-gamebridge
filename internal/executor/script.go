@@ -14,6 +14,10 @@ import (
 
 // RunScript safely verifies and executes a local shell script within the allowed directory bounds
 func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string) (string, error) {
+	if strings.Contains(scriptPath, "..") {
+		return "", fmt.Errorf("security violation: directory traversal not allowed in script path: %s", scriptPath)
+	}
+
 	// Resolve the Allowed Directory to an absolute path, evaluating any symlinks
 	realAllowedDir, err := filepath.EvalSymlinks(allowedDir)
 	if err != nil {
@@ -24,15 +28,27 @@ func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string
 		return "", fmt.Errorf("failed to resolve absolute allowed directory: %w", err)
 	}
 
-	// Resolve the requested Script Path, evaluating any symlinks
-	// Note: EvalSymlinks will return an error if the file does not exist on disk yet.
-	realScriptPath, err := filepath.EvalSymlinks(scriptPath)
-	if err != nil {
-		return "", fmt.Errorf("script path resolution failed: %w", err)
-	}
-	realScriptPath, err = filepath.Abs(realScriptPath)
+	// Combine the allowed directory with the provided script name
+	targetPath := filepath.Join(realAllowedDir, scriptPath)
+	realScriptPath, err := filepath.Abs(targetPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve absolute script path: %w", err)
+	}
+
+	info, err := os.Stat(realScriptPath)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("script does not exist: %s", realScriptPath)
+	}
+
+	if info.IsDir() {
+		return "", fmt.Errorf("target is a directory, not an executable script")
+	}
+
+	// Resolve the requested Script Path, evaluating any symlinks
+	// Note: EvalSymlinks will return an error if the file does not exist on disk yet.
+	realScriptPath, err = filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("script path resolution failed: %w", err)
 	}
 
 	// Calculate the relative path from the allowed directory to the target script
@@ -49,15 +65,6 @@ func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string
 			"Relative path", relPath,
 		)
 		return "", fmt.Errorf("SECURITY VIOLATION: Script '%s' attempts to escape the allowed directory", scriptPath)
-	}
-
-	info, err := os.Stat(realScriptPath)
-	if os.IsNotExist(err) {
-		return "", fmt.Errorf("script does not exist: %s", realScriptPath)
-	}
-
-	if info.IsDir() {
-		return "", fmt.Errorf("target is a directory, not an executable script")
 	}
 
 	if info.Mode()&0o111 == 0 {
