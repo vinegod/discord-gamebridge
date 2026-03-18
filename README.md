@@ -79,7 +79,7 @@ commands:
   - name: "start"
     description: "Boots the server"
     type: "script"
-    script_path: "/home/user/scripts/start.sh"
+    script_path: "start.sh"
     permissions:
       allowed_users: ["YOUR_DISCORD_ID"]
 ```
