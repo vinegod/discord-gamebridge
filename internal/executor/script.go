@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,59 +13,43 @@ import (
 
 // RunScript safely verifies and executes a local shell script within the allowed directory bounds
 func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string) (string, error) {
-	if strings.Contains(scriptPath, "..") {
-		return "", fmt.Errorf("security violation: directory traversal not allowed in script path: %s", scriptPath)
+	// Resolve allowed directory: Abs first, then symlinks
+	absAllowedDir, err := filepath.Abs(allowedDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve allowed directory: %w", err)
 	}
-
-	// Resolve the Allowed Directory to an absolute path, evaluating any symlinks
-	realAllowedDir, err := filepath.EvalSymlinks(allowedDir)
+	realAllowedDir, err := filepath.EvalSymlinks(absAllowedDir)
 	if err != nil {
 		return "", fmt.Errorf("server misconfiguration: invalid allowed_script_dir: %w", err)
 	}
-	realAllowedDir, err = filepath.Abs(realAllowedDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve absolute allowed directory: %w", err)
-	}
 
-	// Combine the allowed directory with the provided script name
+	// Build and resolve the script path
 	targetPath := filepath.Join(realAllowedDir, scriptPath)
-	realScriptPath, err := filepath.Abs(targetPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve absolute script path: %w", err)
-	}
-
-	info, err := os.Stat(realScriptPath)
-	if os.IsNotExist(err) {
-		return "", fmt.Errorf("script does not exist: %s", realScriptPath)
-	}
-
-	if info.IsDir() {
-		return "", fmt.Errorf("target is a directory, not an executable script")
-	}
-
-	// Resolve the requested Script Path, evaluating any symlinks
-	// Note: EvalSymlinks will return an error if the file does not exist on disk yet.
-	realScriptPath, err = filepath.EvalSymlinks(targetPath)
+	realScriptPath, err := filepath.EvalSymlinks(targetPath)
 	if err != nil {
 		return "", fmt.Errorf("script path resolution failed: %w", err)
 	}
 
-	// Calculate the relative path from the allowed directory to the target script
+	// Boundary check
 	relPath, err := filepath.Rel(realAllowedDir, realScriptPath)
 	if err != nil {
-		return "", fmt.Errorf("could not calculate relative path for script: %w", err)
+		return "", fmt.Errorf("could not calculate relative path: %w", err)
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("security violation: script %q escapes allowed directory", scriptPath)
 	}
 
-	// Ensure the relative path does not escape the allowed directory
-	if strings.HasPrefix(relPath, ".."+string(filepath.Separator)) || relPath == ".." || relPath == "." {
-		slog.Debug("Script violation debug info",
-			"Allowed script path", realAllowedDir,
-			"Script path", realScriptPath,
-			"Relative path", relPath,
-		)
-		return "", fmt.Errorf("SECURITY VIOLATION: Script '%s' attempts to escape the allowed directory", scriptPath)
+	// Stat the real, resolved, validated path
+	info, err := os.Stat(realScriptPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("script does not exist: %s", realScriptPath)
+		}
+		return "", fmt.Errorf("failed to stat script: %w", err)
 	}
-
+	if info.IsDir() {
+		return "", fmt.Errorf("target is a directory, not a script")
+	}
 	if info.Mode()&0o111 == 0 {
 		return "", fmt.Errorf("script is not executable: %s (run chmod +x)", realScriptPath)
 	}
@@ -80,6 +63,5 @@ func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string
 	if err != nil {
 		return string(output), fmt.Errorf("execution failed: %w", err)
 	}
-
 	return string(output), nil
 }
