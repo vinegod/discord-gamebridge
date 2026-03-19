@@ -85,7 +85,8 @@ commands:
     script_path: "stop.sh"
     script_timeout: 65s
     permissions: *admin_perms
-    static_args: *session
+    static_args:
+    - *session
 
   # Restart server
   - name: "restart"
