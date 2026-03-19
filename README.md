@@ -86,10 +86,33 @@ commands:
 
 Or check detailed example [config_example.yaml](./config_example.yaml)
 
-3. Run the application
+3. **Run the application**:
 
 ```bash
-./discordgamebridge
+./discordgamebridge -config=config_example.yaml
+```
+
+4. Force debug mode
+
+In this mode force logger to use debug mode
+```bash
+./discordgamebridge -config=config_example.yaml -debug
+```
+
+5. Validate config
+
+Run to validate input config for errors (runs in debug mode)
+
+```bash
+./discordgamebridge -config=config_example.yaml -validate
+```
+
+6. Show version
+
+Run to see app version
+
+```bash
+./discordgamebridge -version
 ```
 
 ## Roadmap
