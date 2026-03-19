@@ -21,10 +21,11 @@ type BotWrapper struct {
 	Config     config.Config
 	commandMap map[string]*config.CommandConfig
 	ctx        context.Context
+	reloadCh   chan struct{}
 }
 
-func NewBot(ctx context.Context, cfg config.Config) (*BotWrapper, error) { //nolint:gocritic // reason: config is intentionally passed by value
-	b := &BotWrapper{Config: cfg, ctx: ctx}
+func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*BotWrapper, error) { //nolint:gocritic // reason: config is intentionally passed by value
+	b := &BotWrapper{Config: cfg, ctx: ctx, reloadCh: reloadCh}
 	client, err := disgo.New(cfg.Bot.Token,
 		bot.WithGatewayConfigOpts(gateway.WithIntents(
 			gateway.IntentGuildMessages,

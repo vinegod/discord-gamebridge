@@ -17,27 +17,79 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/server"
 )
 
-// Run initializes the application and blocks until a shutdown signal is received.
-func Run() error {
-	cfg, err := config.Load("config.yaml")
+// internal/app/app.go
+type App struct {
+	ConfigPath string
+	ForceDebug bool
+	ReloadCh   chan struct{}
+}
+
+func New(configPath string) *App {
+	return &App{
+		ConfigPath: configPath,
+		ReloadCh:   make(chan struct{}),
+	}
+}
+
+func (a *App) Run() error {
+	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer rootCancel()
+
+	for {
+		runCtx, cancelRun := context.WithCancel(rootCtx)
+
+		if err := a.Start(runCtx); err != nil {
+			cancelRun()
+			return fmt.Errorf("Failed to start app: %v", err)
+		}
+
+		slog.Info("Application started")
+
+		// Block until the OS stops the app, OR a reload is requested
+		select {
+		case <-rootCtx.Done():
+			slog.Info("OS interrupt received, shutting down")
+			cancelRun()
+			return nil
+
+		case <-a.ReloadCh:
+			slog.Info("Reload signal received, restarting components...")
+			cancelRun()
+		}
+	}
+}
+
+func (a *App) LoadConfiguration() (*config.Config, error) {
+	if a.ForceDebug {
+		configureLogger("Debug")
+	}
+
+	cfg, err := config.Load(a.ConfigPath)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	// Configure the logger as early as possible so all subsequent log lines
-	// respect the configured level.
-	configureLogger(cfg.Bot.LogLevel)
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+	if err = cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	if !a.ForceDebug {
+		configureLogger(cfg.Bot.LogLevel)
+	}
+
+	return cfg, nil
+}
+
+// Run initializes the application and blocks until a shutdown signal is received.
+func (a *App) Start(ctx context.Context) error {
+	cfg, err := a.LoadConfiguration()
+	if err != nil {
+		return err
+	}
 
 	slog.Info("initializing Discord bot")
 
-	discordBot, err := bot.NewBot(ctx, *cfg)
+	discordBot, err := bot.NewBot(ctx, *cfg, a.ReloadCh)
 	if err != nil {
 		return fmt.Errorf("create bot: %w", err)
 	}
