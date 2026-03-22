@@ -34,8 +34,10 @@ type ServerConfig struct {
 	TmuxWindow  int    `yaml:"tmux_window"`
 	TmuxPane    int    `yaml:"tmux_pane"`
 
+	DiscordWebhookURL string
+
 	DiscordChatChannelID     string `yaml:"discord_chat_channel_id"`
-	DiscordWebhookURL        string `yaml:"discord_webhook_url"`
+	DiscordWebhookEnv        string `yaml:"discord_webhook_env"`
 	DiscordConsoleChannelID  string `yaml:"discord_console_channel_id"`
 	DiscordConsoleWebhookURL string `yaml:"discord_console_webhook_url"`
 
@@ -142,7 +144,7 @@ func Load(configPath string) (*Config, error) {
 	}
 	cfg.Bot.Token = token
 
-	cfg.Server.DiscordWebhookURL = os.Getenv(cfg.Server.DiscordWebhookURL)
+	cfg.Server.DiscordWebhookURL = os.Getenv(cfg.Server.DiscordWebhookEnv)
 
 	var compileErr error
 	cfg.Server.CompiledChat, compileErr = regexp.Compile(cfg.Server.RegexParsers.Chat)
@@ -189,8 +191,8 @@ func (c *Config) Validate() error {
 		slog.Warn("'chat_template' is empty. Discord-to-Game chat will be DISABLED.")
 	}
 
-	if c.Server.DiscordWebhookURL == "" {
-		slog.Warn("'discord_webhook_url' is missing. The bot will fallback to standard messages without player avatars.")
+	if c.Server.DiscordWebhookEnv == "" {
+		slog.Warn("'discord_webhook_env' is missing. The bot will fallback to standard messages without player avatars.")
 	}
 
 	if c.Server.DiscordChatChannelID == "" {
