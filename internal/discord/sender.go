@@ -18,6 +18,10 @@ import (
 
 const SystemUsername = "System"
 
+type MessageSender interface {
+	Send(msg Message)
+}
+
 // Message is a single unit of content to be sent to Discord.
 // Username and AvatarURL are used only when sending via webhook;
 // they are silently ignored when falling back to the bot client.
