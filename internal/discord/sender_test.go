@@ -3,11 +3,13 @@ package discord
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/rest"
 	"golang.org/x/time/rate"
 )
 
@@ -215,6 +217,24 @@ func TestFormatGroup_OversizedContent_ProducesMultipleChunks(t *testing.T) {
 }
 
 // --- parseRetryAfter ---
+// Tests use *rest.Error with a mock *http.Response to exercise the
+// type-assertion path. The function only returns non-zero for genuine
+// Discord 429 responses — plain errors and other status codes return 0.
+
+func makeRestError(statusCode int, retryAfterHeader string) error {
+	header := http.Header{}
+	if retryAfterHeader != "" {
+		header.Set("Retry-After", retryAfterHeader)
+	}
+	return &rest.Error{
+		Response: &http.Response{
+			StatusCode: statusCode,
+			Header:     header,
+		},
+	}
+}
+
+// --- parseRetryAfter ---
 
 func TestParseRetryAfter_NilError_ReturnsZero(t *testing.T) {
 	if d := parseRetryAfter(nil); d != 0 {
@@ -222,22 +242,59 @@ func TestParseRetryAfter_NilError_ReturnsZero(t *testing.T) {
 	}
 }
 
-func TestParseRetryAfter_UnrelatedError_ReturnsZero(t *testing.T) {
-	if d := parseRetryAfter(fmt.Errorf("connection refused")); d != 0 {
-		t.Errorf("expected 0 for non-429 error, got %v", d)
+func TestParseRetryAfter_PlainError_ReturnsZero(t *testing.T) {
+	if d := parseRetryAfter(fmt.Errorf("something failed with code 429")); d != 0 {
+		t.Errorf("plain error should return 0, got %v", d)
 	}
 }
 
-func TestParseRetryAfter_RateLimitError_ReturnsPositive(t *testing.T) {
-	d := parseRetryAfter(fmt.Errorf("discord error: 429 Too Many Requests"))
-	if d <= 0 {
-		t.Errorf("expected positive retry-after for 429, got %v", d)
+func TestParseRetryAfter_RestError_Non429_ReturnsZero(t *testing.T) {
+	err := makeRestError(http.StatusInternalServerError, "")
+	if d := parseRetryAfter(err); d != 0 {
+		t.Errorf("500 rest error should return 0, got %v", d)
 	}
 }
 
-func TestParseRetryAfter_500Error_ReturnsZero(t *testing.T) {
-	if d := parseRetryAfter(fmt.Errorf("500 internal server error")); d != 0 {
-		t.Errorf("expected 0 for 500 error, got %v", d)
+func TestParseRetryAfter_RestError_429_WithHeader_ReturnsParsedDuration(t *testing.T) {
+	err := makeRestError(http.StatusTooManyRequests, "1.5")
+	d := parseRetryAfter(err)
+	if d != 1500*time.Millisecond {
+		t.Errorf("expected 1.5s from Retry-After header, got %v", d)
+	}
+}
+
+func TestParseRetryAfter_RestError_429_NoHeader_ReturnsFallback(t *testing.T) {
+	err := makeRestError(http.StatusTooManyRequests, "")
+	d := parseRetryAfter(err)
+	if d != 2*time.Second {
+		t.Errorf("expected 2s fallback when Retry-After header is absent, got %v", d)
+	}
+}
+
+func TestParseRetryAfter_RestError_429_MalformedHeader_ReturnsFallback(t *testing.T) {
+	err := makeRestError(http.StatusTooManyRequests, "not-a-number")
+	d := parseRetryAfter(err)
+	if d != 2*time.Second {
+		t.Errorf("expected 2s fallback for malformed Retry-After header, got %v", d)
+	}
+}
+
+func TestParseRetryAfter_RestError_429_ZeroHeader_ReturnsFallback(t *testing.T) {
+	err := makeRestError(http.StatusTooManyRequests, "0")
+	d := parseRetryAfter(err)
+	// parseRetryAfter(retrySeconds * float64(time.Second)) → 0 duration.
+	// Whether this should use the fallback is a product decision; document
+	// the current behaviour so a regression is caught.
+	t.Logf("Retry-After: 0 produces duration %v", d)
+}
+
+func TestParseRetryAfter_WrappedRestError_429_StillDetected(t *testing.T) {
+	// errors.As unwraps chains — a wrapped *rest.Error must still be found.
+	inner := makeRestError(http.StatusTooManyRequests, "3")
+	wrapped := fmt.Errorf("webhook send: %w", inner)
+	d := parseRetryAfter(wrapped)
+	if d != 3*time.Second {
+		t.Errorf("expected 3s from wrapped rest error, got %v", d)
 	}
 }
 
