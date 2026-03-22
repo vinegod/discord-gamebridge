@@ -118,7 +118,7 @@ server:
   tmux_window: 1
   tmux_pane: 0
   discord_chat_channel_id: "123456789012345678" # gitleaks:allow
-  discord_webhook_url: "TEST_WEBHOOK_URL"
+  discord_webhook_env: "TEST_WEBHOOK_URL"
   log_file_path: "/tmp/server.log"
   chat_template: "say {{.user}}: {{.message}}"
   regex_parsers:
