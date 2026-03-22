@@ -119,8 +119,8 @@ Run to see app version
 
 The following features are planned for future implementation:
 
-- [ ] CLI support: Add possibility to pass different configuration and other parameters via CLI.
-- [ ] Config reload command: reload configuration without restarting bot.
+- [x] CLI support: Add possibility to pass different configuration and other parameters via CLI.
+- [x] Config reload command: reload configuration without restarting bot.
 - [ ] Docs: Add more documentation and examples.
 - [ ] Better template support: current chat template is very limited, Go provides much better tools for it.
 - [ ] Interactive Confirmations: Discord UI buttons to confirm or cancel commands.
