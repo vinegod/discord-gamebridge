@@ -30,12 +30,12 @@ server:
 
   # Max time to send message. If time exceeds - command cancels.
   chat_timeout: 5s
-  discord_webhook_url: "DISCORD_WEBHOOK"
+  discord_webhook_env: "DISCORD_WEBHOOK"
 
   # Log tailing for game -> discord
   log_file_path: "/home/user/terraria_server/logs/server.log"
 
-  chat_template: "say {{.player}} {{.reason}}"
+  chat_template: "say {{.user}} {{.message}}"
   regex_parsers:
     # Matches: <PlayerName> Hello world!
     chat: '^<(?P<player>[^>]+)> (?P<message>.*)$'
