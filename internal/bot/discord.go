@@ -76,31 +76,34 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 	}
 }
 
-// hasPermission checks User IDs and Role IDs against the config
 func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCreate, perms config.PermissionConfig) bool {
 	if len(perms.AllowedRoles) == 0 && len(perms.AllowedUsers) == 0 {
 		return true
 	}
 
-	userID := event.User().ID.String()
+	var roleIDs []string
+	if member := event.Member(); member != nil {
+		roleIDs = make([]string, len(member.RoleIDs))
+		for idx, id := range member.RoleIDs {
+			roleIDs[idx] = id.String()
+		}
+	}
+	return checkPermission(event.User().ID.String(), roleIDs, perms)
+}
+
+func checkPermission(userID string, memberRoleIDs []string, perms config.PermissionConfig) bool {
 	for _, id := range perms.AllowedUsers {
 		if id == userID {
 			return true
 		}
 	}
 
-	member := event.Member()
-	if member == nil {
-		return false
-	}
-
 	for _, allowedRole := range perms.AllowedRoles {
 		if allowedRole == "@everyone" {
 			return true
 		}
-
-		for _, memberRole := range member.RoleIDs {
-			if allowedRole == memberRole.String() {
+		for _, memberRole := range memberRoleIDs {
+			if allowedRole == memberRole {
 				return true
 			}
 		}

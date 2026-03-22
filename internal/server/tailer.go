@@ -15,7 +15,7 @@ import (
 
 // StartTailer begins tailing the server's log file and routes parsed
 // lines to the appropriate Discord channel via the provided Sender.
-func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender *discord.Sender) error {
+func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender discord.MessageSender) error {
 	t, err := tail.TailFile(serverCfg.LogFilePath, tail.Config{
 		Follow:   true,
 		ReOpen:   true,
@@ -32,8 +32,7 @@ func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender *di
 			select {
 			case <-ctx.Done():
 				slog.Info("[tailer] stopping", "file", serverCfg.LogFilePath)
-				err := t.Stop()
-				if err != nil {
+				if err := t.Stop(); err != nil {
 					slog.Error("Failed to stop tailer.", "Error", err)
 				}
 				return
@@ -58,7 +57,7 @@ func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender *di
 }
 
 // processLogLine matches a single log line against compiled regexes and routes it to the sender.
-func processLogLine(line string, cfg *config.ServerConfig, sender *discord.Sender) {
+func processLogLine(line string, cfg *config.ServerConfig, sender discord.MessageSender) {
 	cleanLine := strings.TrimSpace(line)
 	if cleanLine == "" {
 		return
