@@ -2,8 +2,11 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -322,14 +325,26 @@ func splitMessage(s string, limit int) []string {
 	return parts
 }
 
-// parseRetryAfter extracts a Retry-After duration from a Discord error.
-// Returns 0 if the error is not a 429.
+// parseRetryAfter extracts a Retry-After duration from a discordgo error.
+// Returns 0 if the error is not a rate limit.
 func parseRetryAfter(err error) time.Duration {
 	if err == nil {
 		return 0
 	}
-	if strings.Contains(err.Error(), "429") {
-		return 2 * time.Second // conservative fallback until TODO above is resolved
+
+	var restErr *rest.Error
+
+	if errors.As(err, &restErr) && restErr.Response != nil && restErr.Response.StatusCode == http.StatusTooManyRequests {
+		retryAfterStr := restErr.Response.Header.Get("Retry-After")
+		if retryAfterStr != "" {
+			if retrySeconds, parseErr := strconv.ParseFloat(retryAfterStr, 64); parseErr == nil {
+				return time.Duration(retrySeconds * float64(time.Second))
+			}
+		}
+
+		// Conservative fallback if the header is completely missing or malformed
+		return 2 * time.Second
 	}
+
 	return 0
 }
