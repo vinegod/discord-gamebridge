@@ -65,8 +65,9 @@ type RegexParsers struct {
 type CommandType string
 
 const (
-	CommandTypeTmux   CommandType = "tmux"
-	CommandTypeScript CommandType = "script"
+	CommandTypeTmux     CommandType = "tmux"
+	CommandTypeScript   CommandType = "script"
+	CommandTypeInternal CommandType = "internal"
 )
 
 // CommandConfig defines an executable slash command.
