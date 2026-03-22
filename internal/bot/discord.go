@@ -235,7 +235,11 @@ func (b *BotWrapper) executeReload(event *events.ApplicationCommandInteractionCr
 		Content: "Reloading configuration and restarting services...",
 	})
 
-	b.reloadCh <- struct{}{}
+	select {
+	case b.reloadCh <- struct{}{}:
+	default:
+		slog.Debug("ignoring duplicate reload request")
+	}
 }
 
 // executeVersion returns the current bot binary version.

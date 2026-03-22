@@ -27,7 +27,7 @@ type App struct {
 func New(configPath string) *App {
 	return &App{
 		ConfigPath: configPath,
-		ReloadCh:   make(chan struct{}, 1),
+		ReloadCh:   make(chan struct{}),
 	}
 }
 
@@ -37,8 +37,8 @@ func (a *App) Run() error {
 
 	for {
 		runCtx, cancelRun := context.WithCancel(rootCtx)
-
-		if err := a.Start(runCtx); err != nil {
+		cleanup, err := a.Start(runCtx)
+		if err != nil {
 			cancelRun()
 			return fmt.Errorf("Failed to start app: %v", err)
 		}
@@ -49,11 +49,13 @@ func (a *App) Run() error {
 		select {
 		case <-rootCtx.Done():
 			slog.Info("OS interrupt received, shutting down")
+			cleanup()
 			cancelRun()
 			return nil
 
 		case <-a.ReloadCh:
 			slog.Info("Reload signal received, restarting components...")
+			cleanup()
 			cancelRun()
 		}
 	}
@@ -81,55 +83,49 @@ func (a *App) LoadConfiguration() (*config.Config, error) {
 }
 
 // Run initializes the application and blocks until a shutdown signal is received.
-func (a *App) Start(ctx context.Context) error {
+func (a *App) Start(ctx context.Context) (func(), error) {
 	cfg, err := a.LoadConfiguration()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	slog.Info("initializing Discord bot")
 
 	discordBot, err := bot.NewBot(ctx, *cfg, a.ReloadCh)
 	if err != nil {
-		return fmt.Errorf("create bot: %w", err)
+		return nil, fmt.Errorf("create bot: %w", err)
 	}
 
 	if err := discordBot.Client.OpenGateway(ctx); err != nil {
-		return fmt.Errorf("open gateway: %w", err)
+		return nil, fmt.Errorf("open gateway: %w", err)
 	}
-
-	// Ensure the gateway is closed on exit regardless of how we got here.
-	defer func() {
-		slog.Info("closing Discord gateway")
-		discordBot.Client.Close(ctx)
-	}()
-
 	slog.Info("connected to Discord gateway")
 
 	if err := discordBot.SyncCommands(); err != nil {
-		return fmt.Errorf("sync commands: %w", err)
+		return nil, fmt.Errorf("sync commands: %w", err)
 	}
 	slog.Info("slash commands synchronized")
 
 	sender, err := buildSender(ctx, cfg, discordBot)
 	if err != nil {
-		return fmt.Errorf("build sender: %w", err)
+		return nil, fmt.Errorf("build sender: %w", err)
 	}
-	defer func() {
-		slog.Info("draining message queue")
-		sender.Stop()
-	}()
 
 	if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
-		return fmt.Errorf("start tailer: %w", err)
+		return nil, fmt.Errorf("start tailer: %w", err)
 	}
 	slog.Info("log tailer started", "file", cfg.Server.LogFilePath)
 
 	slog.Info("bot is running — press Ctrl+C to quit")
-	<-ctx.Done()
 
-	slog.Info("shutdown signal received, cleaning up...")
-	return nil
+	cleanup := func() {
+		slog.Info("shutting down components...")
+		sender.Stop()
+		discordBot.Client.Close(ctx)
+		slog.Info("cleanup complete")
+	}
+
+	return cleanup, nil
 }
 
 // buildSender constructs and starts the Discord message sender for the configured server channel.
