@@ -27,7 +27,7 @@ type App struct {
 func New(configPath string) *App {
 	return &App{
 		ConfigPath: configPath,
-		ReloadCh:   make(chan struct{}),
+		ReloadCh:   make(chan struct{}, 1),
 	}
 }
 

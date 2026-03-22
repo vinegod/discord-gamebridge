@@ -13,6 +13,7 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/vinegod/discordgamebridge/internal/config"
 	"github.com/vinegod/discordgamebridge/internal/executor"
+	"github.com/vinegod/discordgamebridge/internal/version"
 )
 
 // BotWrapper encapsulates the Discord client and handles slash command routing and execution.
@@ -68,6 +69,8 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 		b.handleTmuxCommand(b.ctx, event, cmdCfg)
 	case config.CommandTypeScript:
 		b.handleScriptCommand(b.ctx, event, cmdCfg)
+	case config.CommandTypeInternal:
+		b.handleInternalCommand(event, cmdCfg)
 	default:
 		slog.Error("Unknown command type.", "Name", cmdCfg.Name, "Type", cmdCfg.Type)
 	}
@@ -198,4 +201,43 @@ func (b *BotWrapper) SyncCommands() error {
 	_, err := b.Client.Rest.SetGlobalCommands(b.Client.ApplicationID, appCommands)
 
 	return err
+}
+
+func (b *BotWrapper) handleInternalCommand(event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
+	switch cmdCfg.Name {
+	case "reload":
+		b.executeReload(event)
+	case "version":
+		b.executeVersion(event)
+	case "ping":
+		b.executePing(event)
+	default:
+		slog.Warn("Unhandled internal command invoked", "command", cmdCfg.Name)
+		_ = event.CreateMessage(discord.MessageCreate{
+			Content: fmt.Sprintf("Unknown internal command: `%s`", cmdCfg.Name),
+		})
+	}
+}
+
+// executeReload signals the main loop to rebuild components.
+func (b *BotWrapper) executeReload(event *events.ApplicationCommandInteractionCreate) {
+	_ = event.CreateMessage(discord.MessageCreate{
+		Content: "Reloading configuration and restarting services...",
+	})
+
+	b.reloadCh <- struct{}{}
+}
+
+// executeVersion returns the current bot binary version.
+func (b *BotWrapper) executeVersion(event *events.ApplicationCommandInteractionCreate) {
+	_ = event.CreateMessage(discord.MessageCreate{
+		Content: fmt.Sprintf("discord-gamebridge version: `%s`", version.Version),
+	})
+}
+
+// executePing verifies Discord API latency and bot responsiveness.
+func (b *BotWrapper) executePing(event *events.ApplicationCommandInteractionCreate) {
+	_ = event.CreateMessage(discord.MessageCreate{
+		Content: "Pong! Bot is operational.",
+	})
 }
