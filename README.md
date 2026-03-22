@@ -68,7 +68,7 @@ bot:
 server:
   tmux_session: "terraria_server"
   discord_chat_channel_id: "123456789012345678"
-  chat_template: "say {{.player}} {{.reason}}"
+  chat_template: "say {{.user}} {{.message}}"
   log_file_path: "/home/user/terraria_server/logs/server.log"
 
   regex_parsers:
