@@ -86,7 +86,7 @@ commands:
     script_timeout: 65s
     permissions: *admin_perms
     static_args:
-    - *session
+      - *session
 
   # Restart server
   - name: "restart"
@@ -96,3 +96,21 @@ commands:
     script_timeout: 75s
     permissions: *admin_perms
     static_args: *server_args
+
+  - name: "reload"
+    description: "Hot-reloads the bot configuration"
+    type: "internal"
+    permissions:
+      allowed_users: ["YOUR_ADMIN_ID"]
+
+  - name: "ping"
+    description: "Check bot latency"
+    type: "internal"
+    permissions:
+      allowed_roles: ["@everyone"]
+
+  - name: "version"
+    description: "Check bot versiob"
+    type: "internal"
+    permissions:
+      allowed_roles: ["@everyone"]
