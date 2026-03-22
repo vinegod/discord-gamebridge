@@ -56,7 +56,7 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 		return
 	}
 
-	if !b.hasPermission(event, cmdCfg) {
+	if !b.hasPermission(event, cmdCfg.Permissions) {
 		_ = event.CreateMessage(discord.MessageCreate{
 			Content: "**Permission Denied:** You do not have the required roles to run this command.",
 			Flags:   discord.MessageFlagEphemeral,
@@ -77,20 +77,31 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 }
 
 // hasPermission checks User IDs and Role IDs against the config
-func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) bool {
+func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCreate, perms config.PermissionConfig) bool {
+	if len(perms.AllowedRoles) == 0 && len(perms.AllowedUsers) == 0 {
+		return true
+	}
+
 	userID := event.User().ID.String()
-	for _, allowedUser := range cmdCfg.Permissions.AllowedUsers {
-		if userID == allowedUser {
+	for _, id := range perms.AllowedUsers {
+		if id == userID {
 			return true
 		}
 	}
 
-	if event.Member() != nil {
-		for _, userRoleID := range event.Member().RoleIDs {
-			for _, allowedRole := range cmdCfg.Permissions.AllowedRoles {
-				if userRoleID.String() == allowedRole {
-					return true
-				}
+	member := event.Member()
+	if member == nil {
+		return false
+	}
+
+	for _, allowedRole := range perms.AllowedRoles {
+		if allowedRole == "@everyone" {
+			return true
+		}
+
+		for _, memberRole := range member.RoleIDs {
+			if allowedRole == memberRole.String() {
+				return true
 			}
 		}
 	}
@@ -146,7 +157,6 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 		}
 	}
 
-	// Pass the AllowedScriptDir from the bot's configuration
 	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
 
