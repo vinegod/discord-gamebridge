@@ -29,7 +29,6 @@ func main() {
 	application := app.New(*configPath)
 
 	if *validateOnly {
-		application.ForceDebug = true
 		if _, err := application.LoadConfiguration(); err != nil {
 			fmt.Printf("Configuration is invalid: %v\n", err)
 			os.Exit(1)

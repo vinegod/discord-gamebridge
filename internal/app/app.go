@@ -40,7 +40,7 @@ func (a *App) Run() error {
 		cleanup, err := a.Start(runCtx)
 		if err != nil {
 			cancelRun()
-			return fmt.Errorf("Failed to start app: %v", err)
+			return fmt.Errorf("Failed to start app: %w", err)
 		}
 
 		slog.Info("Application started")
