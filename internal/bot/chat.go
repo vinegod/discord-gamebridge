@@ -12,7 +12,7 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/executor"
 )
 
-// // onMessageCreate processes Discord messages and forwards them to the game console via tmux.
+// onMessageCreate processes Discord messages and forwards them to the game console via tmux.
 func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 	// Ignore bots (prevents endless feedback loops if the bot reads its own messages)
 	if event.Message.Author.Bot {
@@ -46,7 +46,6 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 		if err != nil {
 			slog.Error("Failed to send chat to tmux.", "Error", err)
 		}
-		return
 	}
 }
 

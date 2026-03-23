@@ -31,6 +31,7 @@ func New(configPath string) *App {
 	}
 }
 
+// Runs app and blocks until a reload/shutdown signal is received.
 func (a *App) Run() error {
 	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer rootCancel()
@@ -82,7 +83,7 @@ func (a *App) LoadConfiguration() (*config.Config, error) {
 	return cfg, nil
 }
 
-// Run initializes the application and blocks until a shutdown signal is received.
+// Start initializes the application and returns cleanup function
 func (a *App) Start(ctx context.Context) (func(), error) {
 	cfg, err := a.LoadConfiguration()
 	if err != nil {
