@@ -19,15 +19,15 @@ import (
 
 // internal/app/app.go
 type App struct {
-	ConfigPath string
+	configPath string
 	ForceDebug bool
-	ReloadCh   chan struct{}
+	reloadCh   chan struct{}
 }
 
 func New(configPath string) *App {
 	return &App{
-		ConfigPath: configPath,
-		ReloadCh:   make(chan struct{}),
+		configPath: configPath,
+		reloadCh:   make(chan struct{}),
 	}
 }
 
@@ -53,7 +53,7 @@ func (a *App) Run() error {
 			cancelRun()
 			return nil
 
-		case <-a.ReloadCh:
+		case <-a.reloadCh:
 			slog.Info("Reload signal received, restarting components...")
 			cleanup()
 			cancelRun()
@@ -66,7 +66,7 @@ func (a *App) LoadConfiguration() (*config.Config, error) {
 		configureLogger("Debug")
 	}
 
-	cfg, err := config.Load(a.ConfigPath)
+	cfg, err := config.Load(a.configPath)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
@@ -91,7 +91,7 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 
 	slog.Info("initializing Discord bot")
 
-	discordBot, err := bot.NewBot(ctx, *cfg, a.ReloadCh)
+	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh)
 	if err != nil {
 		return nil, fmt.Errorf("create bot: %w", err)
 	}

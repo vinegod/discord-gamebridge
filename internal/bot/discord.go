@@ -19,14 +19,14 @@ import (
 // BotWrapper encapsulates the Discord client and handles slash command routing and execution.
 type BotWrapper struct {
 	Client     *bot.Client
-	Config     config.Config
+	config     config.Config
 	commandMap map[string]*config.CommandConfig
 	ctx        context.Context
 	reloadCh   chan struct{}
 }
 
 func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*BotWrapper, error) { //nolint:gocritic // reason: config is intentionally passed by value
-	b := &BotWrapper{Config: cfg, ctx: ctx, reloadCh: reloadCh}
+	b := &BotWrapper{config: cfg, ctx: ctx, reloadCh: reloadCh}
 	client, err := disgo.New(cfg.Bot.Token,
 		bot.WithGatewayConfigOpts(gateway.WithIntents(
 			gateway.IntentGuildMessages,
@@ -130,7 +130,7 @@ func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.Applic
 	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
 
-	err := executor.SendCommand(ctx, b.Config.Server.TmuxSession, b.Config.Server.TmuxWindow, b.Config.Server.TmuxPane, finalCmd)
+	err := executor.SendCommand(ctx, b.config.Server.TmuxSession, b.config.Server.TmuxWindow, b.config.Server.TmuxPane, finalCmd)
 	if err != nil {
 		if err := event.CreateMessage(discord.MessageCreate{Content: "Failed to execute command: " + err.Error()}); err != nil {
 			slog.Error("Failed to respond to user.", "Command", cmdCfg.Name, "error", err.Error())
@@ -163,7 +163,7 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
 
-	output, err := executor.RunScript(ctx, cmdCfg.ScriptPath, b.Config.Bot.AllowedScriptDir, args)
+	output, err := executor.RunScript(ctx, cmdCfg.ScriptPath, b.config.Bot.AllowedScriptDir, args)
 
 	response := fmt.Sprintf("Script Output:\n```text\n%s\n```", output)
 	if err != nil {
@@ -182,12 +182,12 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 
 // SyncCommands registers the configured commands with the Discord API globally.
 func (b *BotWrapper) SyncCommands() error {
-	appCommands := make([]discord.ApplicationCommandCreate, len(b.Config.Commands))
+	appCommands := make([]discord.ApplicationCommandCreate, len(b.config.Commands))
 
-	for idx := range b.Config.Commands {
+	for idx := range b.config.Commands {
 		var options []discord.ApplicationCommandOption
 
-		for _, arg := range b.Config.Commands[idx].Arguments {
+		for _, arg := range b.config.Commands[idx].Arguments {
 			if arg.Type == config.VariableTypeBool {
 				options = append(options, discord.ApplicationCommandOptionBool{
 					Name:        arg.Name,
@@ -204,8 +204,8 @@ func (b *BotWrapper) SyncCommands() error {
 		}
 
 		appCommands[idx] = discord.SlashCommandCreate{
-			Name:        b.Config.Commands[idx].Name,
-			Description: b.Config.Commands[idx].Description,
+			Name:        b.config.Commands[idx].Name,
+			Description: b.config.Commands[idx].Description,
 			Options:     options,
 		}
 	}

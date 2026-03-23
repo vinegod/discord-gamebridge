@@ -19,7 +19,7 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 		return
 	}
 
-	if event.Message.ChannelID.String() == b.Config.Server.DiscordChatChannelID {
+	if event.Message.ChannelID.String() == b.config.Server.DiscordChatChannelID {
 		cleanText := resolveMentions(&event.Message)
 		safeMessage := sanitizeChat(cleanText)
 
@@ -35,14 +35,14 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 
 		authorName := getSafeName(&event.Message.Author)
 
-		gameCommand := b.Config.Server.ChatTemplate
+		gameCommand := b.config.Server.ChatTemplate
 		gameCommand = strings.ReplaceAll(gameCommand, "{{.user}}", authorName)
 		gameCommand = strings.ReplaceAll(gameCommand, "{{.message}}", safeMessage)
 
-		ctx, cancel := context.WithTimeout(b.ctx, b.Config.Server.ChatTimeout)
+		ctx, cancel := context.WithTimeout(b.ctx, b.config.Server.ChatTimeout)
 		defer cancel()
 
-		err := executor.SendCommand(ctx, b.Config.Server.TmuxSession, b.Config.Server.TmuxWindow, b.Config.Server.TmuxPane, gameCommand)
+		err := executor.SendCommand(ctx, b.config.Server.TmuxSession, b.config.Server.TmuxWindow, b.config.Server.TmuxPane, gameCommand)
 		if err != nil {
 			slog.Error("Failed to send chat to tmux.", "Error", err)
 		}
