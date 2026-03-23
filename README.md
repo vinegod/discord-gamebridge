@@ -101,7 +101,7 @@ In this mode force logger to use debug mode
 
 5. Validate config
 
-Run to validate input config for errors (runs in debug mode)
+Run to validate input config for errors
 
 ```bash
 ./discordgamebridge -config=config_example.yaml -validate
