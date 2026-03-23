@@ -121,7 +121,6 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 	cleanup := func() {
 		slog.Info("shutting down components...")
 		sender.Stop()
-		discordBot.Client.Close(ctx)
 		slog.Info("cleanup complete")
 	}
 
