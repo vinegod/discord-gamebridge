@@ -167,7 +167,7 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 
 	response := fmt.Sprintf("Script Output:\n```text\n%s\n```", output)
 	if err != nil {
-		response = fmt.Sprintf("Script Failed: \n```text\n%v\n```", err)
+		response = fmt.Sprintf("Script Failed: %v\n```text\n%s\n```", err, output)
 	}
 
 	runes := []rune(response)
