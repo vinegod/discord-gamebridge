@@ -6,26 +6,17 @@ before:
 
 project_name: discord-gamebridge
 builds:
-  - id: gamebridge-linux
-    env:
+  - env:
       - CGO_ENABLED=0
-    flags:
-      - -trimpath
     goos:
       - linux
-    goarch:
-      - amd64
-      - arm64
-
-  - id: gamebridge-windows
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    goos:
       - windows
     goarch:
       - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
 
 archives:
   - formats: ["tar.gz"]
