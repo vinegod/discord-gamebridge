@@ -27,14 +27,22 @@ type BotWrapper struct {
 
 func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*BotWrapper, error) { //nolint:gocritic // reason: config is intentionally passed by value
 	b := &BotWrapper{config: cfg, ctx: ctx, reloadCh: reloadCh}
-	client, err := disgo.New(cfg.Bot.Token,
-		bot.WithGatewayConfigOpts(gateway.WithIntents(
-			gateway.IntentGuildMessages,
-			gateway.IntentMessageContent,
-		)),
-		bot.WithEventListenerFunc(b.onMessageCreate),
-		bot.WithEventListenerFunc(b.onApplicationCommand),
-	)
+
+	intents := gateway.IntentGuildMessages
+	opts := []bot.ConfigOpt{}
+
+	if cfg.Server.ChatTemplate != "" {
+		intents |= gateway.IntentGuildMessages
+		intents |= gateway.IntentMessageContent
+		opts = append(opts, bot.WithEventListenerFunc(b.onMessageCreate))
+	}
+
+	if len(cfg.Commands) > 0 {
+		opts = append(opts, bot.WithEventListenerFunc(b.onApplicationCommand))
+	}
+
+	opts = append(opts, bot.WithGatewayConfigOpts(gateway.WithIntents(intents)))
+	client, err := disgo.New(cfg.Bot.Token, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +190,12 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 
 // SyncCommands registers the configured commands with the Discord API globally.
 func (b *BotWrapper) SyncCommands() error {
-	appCommands := make([]discord.ApplicationCommandCreate, len(b.config.Commands))
+	if len(b.config.Commands) == 0 {
+		slog.Info("no commands configured, skipping command sync")
+		return nil
+	}
 
+	appCommands := make([]discord.ApplicationCommandCreate, len(b.config.Commands))
 	for idx := range b.config.Commands {
 		var options []discord.ApplicationCommandOption
 
