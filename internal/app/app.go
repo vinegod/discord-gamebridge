@@ -107,21 +107,27 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 	}
 	slog.Info("slash commands synchronized")
 
-	sender, err := buildSender(ctx, cfg, discordBot)
-	if err != nil {
-		return nil, fmt.Errorf("build sender: %w", err)
+	var sender *discord.Sender
+	if cfg.Server.LogFilePath != "" {
+		sender, err = buildSender(ctx, cfg, discordBot)
+		if err != nil {
+			return nil, fmt.Errorf("build sender: %w", err)
+		}
+		if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
+			return nil, fmt.Errorf("start tailer: %w", err)
+		}
+		slog.Info("log tailer started", "file", cfg.Server.LogFilePath)
+	} else {
+		slog.Info("log_file_path not set, log tailing disabled")
 	}
-
-	if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
-		return nil, fmt.Errorf("start tailer: %w", err)
-	}
-	slog.Info("log tailer started", "file", cfg.Server.LogFilePath)
 
 	slog.Info("bot is running — press Ctrl+C to quit")
 
 	cleanup := func() {
 		slog.Info("shutting down components...")
-		sender.Stop()
+		if sender != nil {
+			sender.Stop()
+		}
 		slog.Info("cleanup complete")
 	}
 
@@ -130,8 +136,12 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 
 // buildSender constructs and starts the Discord message sender for the configured server channel.
 func buildSender(ctx context.Context, cfg *config.Config, discordBot *bot.BotWrapper) (*discord.Sender, error) {
-	var webhookClient *webhook.Client
+	if cfg.Server.DiscordChatChannelID == "" {
+		slog.Warn("discord_chat_channel_id not set, game→Discord forwarding disabled")
+		return nil, nil
+	}
 
+	var webhookClient *webhook.Client
 	if cfg.Server.DiscordWebhookURL != "" {
 		wc, err := webhook.NewWithURL(cfg.Server.DiscordWebhookURL)
 		if err != nil {
