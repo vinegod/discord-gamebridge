@@ -2,10 +2,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	snowflake "github.com/disgoorg/snowflake/v2"
@@ -122,6 +124,106 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+type errAccumulator struct {
+	errs []error
+}
+
+func (e *errAccumulator) add(err error) {
+	if err != nil {
+		e.errs = append(e.errs, err)
+	}
+}
+
+func (e *errAccumulator) err() error {
+	return errors.Join(e.errs...)
+}
+
+func compileRegex(name, pattern string, dest **regexp.Regexp) error {
+	if pattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return fmt.Errorf("invalid %s regex: %w", name, err)
+	}
+	*dest = re
+	return nil
+}
+
+func validateCommand(cmd CommandConfig) error { //nolint:gocritic //reason: it's ok pass value here
+	acc := &errAccumulator{}
+
+	switch {
+	case cmd.Name == "":
+		acc.add(fmt.Errorf("name is required"))
+	case len(cmd.Name) > 32:
+		acc.add(fmt.Errorf("command %q: name exceeds 32 character Discord limit", cmd.Name))
+	case strings.ContainsAny(cmd.Name, " \t\n\r"):
+		acc.add(fmt.Errorf("command %q: name must not contain whitespace", cmd.Name))
+	case strings.ToLower(cmd.Name) != cmd.Name:
+		acc.add(fmt.Errorf("command %q: name must be lowercase", cmd.Name))
+	}
+
+	switch {
+	case cmd.Description == "":
+		acc.add(fmt.Errorf("command %q: description is required", cmd.Name))
+	case len(cmd.Description) > 100:
+		acc.add(fmt.Errorf("command %q: description exceeds 100 character Discord limit", cmd.Name))
+	}
+
+	switch cmd.Type {
+	case CommandTypeTmux:
+		if cmd.Template == "" {
+			acc.add(fmt.Errorf("command %q: template is required for tmux type", cmd.Name))
+		}
+	case CommandTypeScript:
+		if cmd.ScriptPath == "" {
+			acc.add(fmt.Errorf("command %q: script_path is required for script type", cmd.Name))
+		}
+	case CommandTypeInternal:
+		// no extra fields required
+	case "":
+		acc.add(fmt.Errorf("command %q: type is required (tmux, script, internal)", cmd.Name))
+	default:
+		acc.add(fmt.Errorf("command %q: unknown type %q (expected tmux, script, internal)", cmd.Name, cmd.Type))
+	}
+
+	for i, arg := range cmd.Arguments {
+		acc.add(validateArgument(cmd.Name, i, arg))
+	}
+
+	return acc.err()
+}
+
+func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
+	acc := &errAccumulator{}
+
+	switch {
+	case arg.Name == "":
+		acc.add(fmt.Errorf("command %q argument[%d]: name is required", cmdName, idx))
+	case strings.ContainsAny(arg.Name, " \t\n\r"):
+		acc.add(fmt.Errorf("command %q argument %q: name must not contain whitespace", cmdName, arg.Name))
+	}
+
+	switch {
+	case arg.Description == "":
+		acc.add(fmt.Errorf("command %q argument %q: description is required", cmdName, arg.Name))
+	case len(arg.Description) > 100:
+		acc.add(fmt.Errorf("command %q argument %q: description exceeds 100 character Discord limit", cmdName, arg.Name))
+	}
+
+	switch arg.Type {
+	case VariableTypeString, VariableTypeBool:
+		// valid
+	case "":
+		acc.add(fmt.Errorf("command %q argument %q: type is required (string, boolean)", cmdName, arg.Name))
+	default:
+		acc.add(fmt.Errorf("command %q argument %q: unknown type %q (expected string, boolean)", cmdName, arg.Name, arg.Type))
+	}
+
+	return acc.err()
+}
+
 func Load(configPath string) (*Config, error) {
 	_ = godotenv.Load()
 
@@ -139,46 +241,25 @@ func Load(configPath string) (*Config, error) {
 	cfg.applyDefaults()
 
 	token := os.Getenv(cfg.Bot.TokenEnvVar)
+	acc := &errAccumulator{}
+
 	if token == "" {
-		return nil, fmt.Errorf("critical: Discord token environment variable [%s] is empty", cfg.Bot.TokenEnvVar)
+		acc.add(fmt.Errorf("critical: Discord token environment variable [%s] is empty", cfg.Bot.TokenEnvVar))
 	}
 	cfg.Bot.Token = token
 
-	cfg.Server.DiscordWebhookURL = os.Getenv(cfg.Server.DiscordWebhookEnv)
-
-	var compileErr error
-	cfg.Server.CompiledChat, compileErr = regexp.Compile(cfg.Server.RegexParsers.Chat)
-	if compileErr != nil {
-		return nil, fmt.Errorf("invalid chat regex: %w", compileErr)
+	if cfg.Server.DiscordWebhookEnv != "" {
+		cfg.Server.DiscordWebhookURL = os.Getenv(cfg.Server.DiscordWebhookEnv)
 	}
 
-	cfg.Server.CompiledJoin, compileErr = regexp.Compile(cfg.Server.RegexParsers.Join)
-	if compileErr != nil {
-		return nil, fmt.Errorf("invalid join regex: %w", compileErr)
-	}
+	acc.add(compileRegex("chat", cfg.Server.RegexParsers.Chat, &cfg.Server.CompiledChat))
+	acc.add(compileRegex("join", cfg.Server.RegexParsers.Join, &cfg.Server.CompiledJoin))
+	acc.add(compileRegex("leave", cfg.Server.RegexParsers.Leave, &cfg.Server.CompiledLeave))
+	acc.add(compileRegex("console", cfg.Server.RegexParsers.Console, &cfg.Server.CompiledConsole))
+	acc.add(compileRegex("ignore", cfg.Server.RegexParsers.Ignore, &cfg.Server.CompiledIgnore))
 
-	cfg.Server.CompiledLeave, compileErr = regexp.Compile(cfg.Server.RegexParsers.Leave)
-	if compileErr != nil {
-		return nil, fmt.Errorf("invalid leave regex: %w", compileErr)
-	}
-
-	cfg.Server.CompiledConsole, compileErr = regexp.Compile(cfg.Server.RegexParsers.Console)
-	if compileErr != nil {
-		return nil, fmt.Errorf("invalid console regex: %w", compileErr)
-	}
-
-	if cfg.Server.RegexParsers.Events != "" {
-		cfg.Server.CompiledEvents, compileErr = regexp.Compile(cfg.Server.RegexParsers.Events)
-		if compileErr != nil {
-			return nil, fmt.Errorf("invalid console regex: %w", compileErr)
-		}
-	}
-
-	if cfg.Server.RegexParsers.Ignore != "" {
-		cfg.Server.CompiledIgnore, compileErr = regexp.Compile(cfg.Server.RegexParsers.Ignore)
-		if compileErr != nil {
-			slog.Warn("invalid ignore regex", "Error", compileErr)
-		}
+	if err := acc.err(); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil
@@ -187,30 +268,65 @@ func Load(configPath string) (*Config, error) {
 func (c *Config) Validate() error {
 	slog.Info("Validating Server config")
 
-	if c.Server.ChatTemplate == "" {
-		slog.Warn("'chat_template' is empty. Discord-to-Game chat will be DISABLED.")
+	// Feature status logging
+	if c.Server.LogFilePath != "" {
+		slog.Info("log tailing enabled", "file", c.Server.LogFilePath)
+	} else {
+		slog.Info("log tailing disabled — log_file_path not set")
 	}
 
-	if c.Server.DiscordWebhookEnv == "" {
-		slog.Warn("'discord_webhook_env' is missing. The bot will fallback to standard messages without player avatars.")
+	if c.Server.ChatTemplate != "" {
+		slog.Info("Discord -> Game chat send enabled")
+	} else {
+		slog.Warn("Discord -> Game chat disabled — chat_template not set")
 	}
 
-	if c.Server.DiscordChatChannelID == "" {
-		slog.Warn("'discord_chat_channel_id' is missing. The bot has nowhere to send messages!")
+	if c.Server.DiscordChatChannelID != "" {
+		slog.Info("Game -> Discord forwarding enabled",
+			"channel", c.Server.DiscordChatChannelID)
+	} else {
+		slog.Warn("Game→Discord forwarding disabled — discord_chat_channel_id not set")
 	}
 
-	// Regex Validation
-	if c.Server.RegexParsers.Chat == "" {
-		slog.Warn("'regex_parsers.chat' is empty. In-game chat will NOT be forwarded to Discord.")
-	}
-	if c.Server.RegexParsers.Join == "" {
-		slog.Warn("'regex_parsers.join' is empty. Join events will be ignored.")
-	}
-	if c.Server.RegexParsers.Leave == "" {
-		slog.Warn("'regex_parsers.leave' is empty. Leave events will be ignored.")
+	if c.Server.DiscordWebhookURL == "" && c.Server.DiscordChatChannelID != "" { //nolint:nestif //reason: It's ok for validation
+		slog.Warn("no webhook URL — messages will appear from bot account")
+	} else {
+		// Regex Validation
+		if c.Server.RegexParsers.Chat == "" {
+			slog.Warn("'regex_parsers.chat' is empty. In-game chat will NOT be forwarded to Discord.")
+		}
+		if c.Server.RegexParsers.Join == "" {
+			slog.Warn("'regex_parsers.join' is empty. Join events will be ignored.")
+		}
+		if c.Server.RegexParsers.Leave == "" {
+			slog.Warn("'regex_parsers.leave' is empty. Leave events will be ignored.")
+		}
+		if c.Server.RegexParsers.Console == "" {
+			slog.Warn("'regex_parsers.console' is empty. Console events will be ignored.")
+		}
+		if c.Server.RegexParsers.Ignore == "" {
+			slog.Warn("'regex_parsers.ignore' is empty. Ignore events will be ignored.")
+		}
 	}
 
-	return nil
+	acc := &errAccumulator{}
+	// Command validation — all errors collected, returned together
+	if len(c.Commands) > 0 {
+		slog.Info("validating commands", "count", len(c.Commands))
+
+		names := make(map[string]struct{}, len(c.Commands))
+		for _, cmd := range c.Commands { //nolint:gocritic // reason: for validation is ok
+			if _, duplicate := names[cmd.Name]; duplicate {
+				acc.add(fmt.Errorf("duplicate command name %q", cmd.Name))
+			}
+			names[cmd.Name] = struct{}{}
+			acc.add(validateCommand(cmd))
+		}
+	} else {
+		slog.Info("commands disabled — none configured")
+	}
+
+	return acc.err()
 }
 
 func (s *ServerConfig) ParsedChatChannelID() (snowflake.ID, error) {
