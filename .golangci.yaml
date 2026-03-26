@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
   issues-exit-code: 1
@@ -6,6 +8,10 @@ run:
 linters-settings:
   gocyclo:
     min-complexity: 15
+
+  gocognit:
+    min-complexity: 20
+
   gocritic:
     enabled-tags:
       - diagnostic
@@ -13,11 +19,14 @@ linters-settings:
       - opinionated
       - performance
       - style
+
   gosec:
     severity: medium
     confidence: medium
+
   goimports:
     local-prefixes: github.com/vinegod/discordgamebridge
+
   nolintlint:
     require-explanation: true
     require-specific: true
@@ -29,26 +38,49 @@ linters-settings:
       - name: package-comments
         disabled: true
 
+  wrapcheck:
+    ignoreSigs:
+      - .Errorf(
+      - errors.New(
+      - errors.Join(
+      - errors.Unwrap(
+
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+
+  godot:
+    scope: declarations
+    capital: false
+
+  contextcheck:
+    disable-exported-types-check: false
+
 linters:
   disable-all: true
   enable:
     # Default / Standard
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
 
-    # Security & Execution
+    # Error handling
+    - wrapcheck
+    - errorlint
+    - nilerr
+
+    # Security
     - gosec
+    - bidichk
 
     # Formatting & Style
-    # - goimports TODO: format imports
-    - revive
     - misspell
     - whitespace
     - nolintlint
+    - godot
 
     # Complexity & Design
     - gocyclo
@@ -56,10 +88,19 @@ linters:
     - nakedret
     - exhaustive
     - nestif
+    - unparam
+    - reassign
+
+    # Context
+    - contextcheck
 
     # Performance
     - prealloc
     - gocognit
+
+formatterts:
+  enable:
+    - gofumpt
 
 issues:
   exclude-use-default: false
