@@ -15,7 +15,7 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
-// Config represents the root of config.yaml
+// Config represents the root of config.yaml.
 type Config struct {
 	Bot      BotConfig       `yaml:"bot"`
 	Server   ServerConfig    `yaml:"server"`
@@ -150,7 +150,7 @@ func compileRegex(name, pattern string, dest **regexp.Regexp) error {
 	return nil
 }
 
-func validateCommand(cmd CommandConfig) error { //nolint:gocritic //reason: it's ok pass value here
+func validateCommand(cmd CommandConfig) error {
 	acc := &errAccumulator{}
 
 	switch {
@@ -315,7 +315,7 @@ func (c *Config) Validate() error {
 		slog.Info("validating commands", "count", len(c.Commands))
 
 		names := make(map[string]struct{}, len(c.Commands))
-		for _, cmd := range c.Commands { //nolint:gocritic // reason: for validation is ok
+		for _, cmd := range c.Commands {
 			if _, duplicate := names[cmd.Name]; duplicate {
 				acc.add(fmt.Errorf("duplicate command name %q", cmd.Name))
 			}

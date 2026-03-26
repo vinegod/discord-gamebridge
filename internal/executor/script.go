@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// RunScript safely verifies and executes a local shell script within the allowed directory bounds
+// RunScript safely verifies and executes a local shell script within the allowed directory bounds.
 func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string) (string, error) {
 	// Resolve allowed directory: Abs first, then symlinks
 	absAllowedDir, err := filepath.Abs(allowedDir)

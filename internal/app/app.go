@@ -17,7 +17,7 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/server"
 )
 
-// internal/app/app.go
+// internal/app/app.go.
 type App struct {
 	configPath string
 	ForceDebug bool
@@ -41,7 +41,7 @@ func (a *App) Run() error {
 		cleanup, err := a.Start(runCtx)
 		if err != nil {
 			cancelRun()
-			return fmt.Errorf("Failed to start app: %w", err)
+			return fmt.Errorf("failed to start app: %w", err)
 		}
 
 		slog.Info("Application started")
@@ -83,7 +83,7 @@ func (a *App) LoadConfiguration() (*config.Config, error) {
 	return cfg, nil
 }
 
-// Start initializes the application and returns cleanup function
+// Start initializes the application and returns cleanup function.
 func (a *App) Start(ctx context.Context) (func(), error) {
 	cfg, err := a.LoadConfiguration()
 	if err != nil {

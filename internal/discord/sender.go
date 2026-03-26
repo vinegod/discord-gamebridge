@@ -266,7 +266,7 @@ func (s *Sender) sendViaBot(content string) (time.Duration, error) {
 	return 0, nil
 }
 
-// groupByUsername splits a flat message slice into runs of consecutive messages
+// groupByUsername splits a flat message slice into runs of consecutive messages.
 func groupByUsername(msgs []Message) [][]Message {
 	if len(msgs) == 0 {
 		return nil
