@@ -25,7 +25,7 @@ type BotWrapper struct {
 	reloadCh   chan struct{}
 }
 
-func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*BotWrapper, error) { //nolint:gocritic // reason: config is intentionally passed by value
+func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*BotWrapper, error) {
 	b := &BotWrapper{config: cfg, ctx: ctx, reloadCh: reloadCh}
 
 	intents := gateway.IntentGuildMessages
@@ -44,7 +44,7 @@ func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*Bo
 	opts = append(opts, bot.WithGatewayConfigOpts(gateway.WithIntents(intents)))
 	client, err := disgo.New(cfg.Bot.Token, opts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
 	b.commandMap = make(map[string]*config.CommandConfig, len(cfg.Commands))
@@ -223,9 +223,11 @@ func (b *BotWrapper) SyncCommands() error {
 	}
 
 	slog.Info("syncing commands to Discord API", "count", len(appCommands))
-	_, err := b.Client.Rest.SetGlobalCommands(b.Client.ApplicationID, appCommands)
+	if _, err := b.Client.Rest.SetGlobalCommands(b.Client.ApplicationID, appCommands); err != nil {
+		return fmt.Errorf("failed to set global commands: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func (b *BotWrapper) handleInternalCommand(event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {

@@ -73,7 +73,7 @@ func getSafeName(user *discord.User) string {
 	return user.ID.String()
 }
 
-// resolveMentions replaces <@ID> with @Username (or @ID if the username is unprintable)
+// resolveMentions replaces <@ID> with @Username (or @ID if the username is unprintable).
 func resolveMentions(msg *discord.Message) string {
 	content := msg.Content
 
@@ -91,7 +91,7 @@ func resolveMentions(msg *discord.Message) string {
 	return content
 }
 
-// sanitizeChat strictly removes newlines and terminal control characters
+// sanitizeChat strictly removes newlines and terminal control characters.
 func sanitizeChat(input string) string {
 	var builder strings.Builder
 
