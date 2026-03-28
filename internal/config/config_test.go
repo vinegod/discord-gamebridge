@@ -82,6 +82,7 @@ func TestValidate_ValidConfig_ReturnsNil(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{
 			ChatTemplate:         "say {{.user}}: {{.message}}",
+			ChatExecutor:         "tmux",
 			DiscordWebhookURL:    "https://discord.com/api/webhooks/x",
 			DiscordChatChannelID: "123456789012345678", // gitleaks:allow
 			RegexParsers: RegexParsers{
@@ -142,9 +143,6 @@ func TestLoad_ValidConfig_ParsedCorrectly(t *testing.T) {
 
 	if cfg.Bot.Token != "my-secret-token" {
 		t.Errorf("expected token from env, got %q", cfg.Bot.Token)
-	}
-	if cfg.Server.TmuxSession != "terraria" {
-		t.Errorf("expected tmux_session 'terraria', got %q", cfg.Server.TmuxSession)
 	}
 	if cfg.Server.DiscordChatChannelID != "123456789012345678" {
 		t.Errorf("expected channel ID, got %q", cfg.Server.DiscordChatChannelID)

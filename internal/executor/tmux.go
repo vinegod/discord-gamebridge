@@ -7,34 +7,36 @@ import (
 	"strings"
 )
 
-// SendCommand targets a specific tmux session, window, and pane, and securely injects a command.
-func SendCommand(ctx context.Context, sessionName string, windowIndex, paneIndex int, command string) error {
-	// Verify the Session Exists
+// TmuxExecutor sends commands to a specific tmux session/window/pane.
+type TmuxExecutor struct {
+	Session string
+	Window  int
+	Pane    int
+}
+
+// Send injects command into the configured tmux pane and presses Enter.
+func (e *TmuxExecutor) Send(ctx context.Context, command string) (string, error) {
 	// TODO: Check G204 issues here and below
-	checkCmd := exec.CommandContext(ctx, "tmux", "has-session", "-t", sessionName) // #nosec G204
+	checkCmd := exec.CommandContext(ctx, "tmux", "has-session", "-t", e.Session) // #nosec G204
 	if err := checkCmd.Run(); err != nil {
-		return fmt.Errorf("tmux session '%s' not found (is the server running?)", sessionName)
+		return "", fmt.Errorf("tmux session %q not found (is the server running?)", e.Session)
 	}
 
-	// Format the Target Route
-	target := fmt.Sprintf("%s:%d.%d", sessionName, windowIndex, paneIndex)
+	target := fmt.Sprintf("%s:%d.%d", e.Session, e.Window, e.Pane)
 
-	// Because of issues with tmux we send commands in two steps:
-	// Step 1: Type the literal text
+	// Step 1: type literal text
 	typeCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-t", target, "-l", command) // #nosec G204
-	output, err := typeCmd.CombinedOutput()
-	if err != nil {
-		errMsg := strings.TrimSpace(string(output))
-		return fmt.Errorf("failed to type literal text into target '%s': %w (tmux output: %s)", target, err, errMsg)
+	if output, err := typeCmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to send keys to %q: %w (tmux: %s)",
+			target, err, strings.TrimSpace(string(output)))
 	}
 
-	// Step 2: Press Enter (C-m)
+	// Step 2: press Enter
 	enterCmd := exec.CommandContext(ctx, "tmux", "send-keys", "-t", target, "C-m") // #nosec G204
-	output, err = enterCmd.CombinedOutput()
-	if err != nil {
-		errMsg := strings.TrimSpace(string(output))
-		return fmt.Errorf("failed to press Enter on target '%s': %w (tmux output: %s)", target, err, errMsg)
+	if output, err := enterCmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to press Enter on %q: %w (tmux: %s)",
+			target, err, strings.TrimSpace(string(output)))
 	}
 
-	return nil
+	return "", nil
 }
