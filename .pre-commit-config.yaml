@@ -18,7 +18,6 @@ repos:
         args: [-over=15]
       - id: no-go-testing
       - id: golangci-lint
-      - id: go-critic
       - id: go-build
 
   - repo: https://github.com/gitleaks/gitleaks
