@@ -6,30 +6,24 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/config"
 )
 
-// --- User allowlist ---
+// ── checkPermission ───────────────────────────────────────────────────────────
 
 func TestCheckPermission_AllowedUser_Grants(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedUsers: []string{"user-123"},
-	}
+	perms := config.PermissionConfig{AllowedUsers: []string{"user-123"}}
 	if !checkPermission("user-123", nil, perms) {
 		t.Error("listed user should be allowed")
 	}
 }
 
 func TestCheckPermission_UnlistedUser_Denies(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedUsers: []string{"user-123"},
-	}
+	perms := config.PermissionConfig{AllowedUsers: []string{"user-123"}}
 	if checkPermission("user-999", nil, perms) {
 		t.Error("unlisted user should be denied")
 	}
 }
 
 func TestCheckPermission_MultipleAllowedUsers_CorrectOneGrants(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedUsers: []string{"alice", "bob", "carol"},
-	}
+	perms := config.PermissionConfig{AllowedUsers: []string{"alice", "bob", "carol"}}
 	if !checkPermission("bob", nil, perms) {
 		t.Error("bob is listed and should be allowed")
 	}
@@ -38,52 +32,39 @@ func TestCheckPermission_MultipleAllowedUsers_CorrectOneGrants(t *testing.T) {
 	}
 }
 
-// --- Role allowlist ---
-
 func TestCheckPermission_AllowedRole_Grants(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedRoles: []string{"admin-role"},
-	}
+	perms := config.PermissionConfig{AllowedRoles: []string{"admin-role"}}
 	if !checkPermission("user-x", []string{"admin-role", "other-role"}, perms) {
 		t.Error("user with allowed role should be granted")
 	}
 }
 
 func TestCheckPermission_NoMatchingRole_Denies(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedRoles: []string{"admin-role"},
-	}
+	perms := config.PermissionConfig{AllowedRoles: []string{"admin-role"}}
 	if checkPermission("user-x", []string{"member-role"}, perms) {
 		t.Error("user without allowed role should be denied")
 	}
 }
 
 func TestCheckPermission_NoRoles_Denies(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedRoles: []string{"admin-role"},
-	}
+	perms := config.PermissionConfig{AllowedRoles: []string{"admin-role"}}
 	if checkPermission("user-x", nil, perms) {
 		t.Error("user with no roles should be denied when roles are required")
 	}
 }
 
 func TestCheckPermission_EveryoneRole_AllowsAll(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedRoles: []string{"@everyone"},
-	}
+	perms := config.PermissionConfig{AllowedRoles: []string{"@everyone"}}
 	if !checkPermission("any-user", nil, perms) {
 		t.Error("@everyone role should allow any user regardless of their roles")
 	}
 }
-
-// --- Combined user + role lists ---
 
 func TestCheckPermission_UserAllowed_EvenWithoutMatchingRole(t *testing.T) {
 	perms := config.PermissionConfig{
 		AllowedUsers: []string{"superadmin"},
 		AllowedRoles: []string{"admin-role"},
 	}
-	// superadmin has no roles but is in the user list — should still be granted.
 	if !checkPermission("superadmin", nil, perms) {
 		t.Error("user in AllowedUsers should be granted even without matching roles")
 	}
@@ -109,23 +90,100 @@ func TestCheckPermission_NeitherUserNorRole_Denies(t *testing.T) {
 	}
 }
 
-// --- DM context (no guild member, so no roles) ---
-
 func TestCheckPermission_NoMember_RoleRequired_Denies(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedRoles: []string{"admin-role"},
-	}
-	// nil roleIDs simulates a DM where there is no guild member.
+	perms := config.PermissionConfig{AllowedRoles: []string{"admin-role"}}
 	if checkPermission("user-x", nil, perms) {
 		t.Error("user in DM (no roles) should be denied for a role-required command")
 	}
 }
 
 func TestCheckPermission_NoMember_UserAllowed_Grants(t *testing.T) {
-	perms := config.PermissionConfig{
-		AllowedUsers: []string{"user-123"},
-	}
+	perms := config.PermissionConfig{AllowedUsers: []string{"user-123"}}
 	if !checkPermission("user-123", nil, perms) {
 		t.Error("user in DM should be granted if they are in AllowedUsers")
+	}
+}
+
+// ── substituteTemplate ────────────────────────────────────────────────────────
+
+func TestSubstituteTemplate_AllPlaceholdersFilled(t *testing.T) {
+	result := substituteTemplate(
+		"kick {{.player}} {{.reason}}",
+		map[string]string{"player": "Alice", "reason": "griefing"},
+	)
+	if result != "kick Alice griefing" {
+		t.Errorf("expected 'kick Alice griefing', got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_SinglePlaceholder(t *testing.T) {
+	result := substituteTemplate("kick {{.player}}", map[string]string{"player": "Bob"})
+	if result != "kick Bob" {
+		t.Errorf("expected 'kick Bob', got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_NoPlaceholders(t *testing.T) {
+	result := substituteTemplate("save", map[string]string{})
+	if result != "save" {
+		t.Errorf("expected 'save', got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_NilValues_RemovesAllPlaceholders(t *testing.T) {
+	result := substituteTemplate("kick {{.player}}", nil)
+	if result != "kick" {
+		t.Errorf("expected empty string with nil values, got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_OptionalMissing_RemovedCleanly(t *testing.T) {
+	// reason is optional and not provided — placeholder must be removed,
+	// leaving no double space or trailing garbage.
+	result := substituteTemplate(
+		"kick {{.player}} {{.reason}}",
+		map[string]string{"player": "Alice"}, // reason omitted
+	)
+	if result != "kick Alice" {
+		t.Errorf("expected 'kick Alice' with missing optional arg removed, got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_AllPlaceholdersMissing_ReturnsEmpty(t *testing.T) {
+	result := substituteTemplate("{{.player}}", map[string]string{})
+	if result != "" {
+		t.Errorf("expected empty string when all placeholders missing, got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_EmptyTemplate_ReturnsEmpty(t *testing.T) {
+	result := substituteTemplate("", map[string]string{"player": "Alice"})
+	if result != "" {
+		t.Errorf("expected empty string for empty template, got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_ExtraValuesIgnored(t *testing.T) {
+	// Values that don't correspond to any placeholder are silently ignored.
+	result := substituteTemplate("save", map[string]string{"unused": "value"})
+	if result != "save" {
+		t.Errorf("expected 'save' with extra values ignored, got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_ValueWithSpecialChars_PassedThrough(t *testing.T) {
+	// Player names can contain spaces, punctuation, etc.
+	// The function must not sanitize values — that's the caller's job.
+	result := substituteTemplate("kick {{.player}}", map[string]string{"player": "Player One"})
+	if result != "kick Player One" {
+		t.Errorf("expected 'kick Player One', got %q", result)
+	}
+}
+
+func TestSubstituteTemplate_TrimmedResult(t *testing.T) {
+	// When the only content is a removed placeholder, TrimSpace must clean up.
+	result := substituteTemplate("  {{.player}}  ", map[string]string{})
+	if result != "" {
+		t.Errorf("expected empty trimmed result, got %q", result)
 	}
 }
