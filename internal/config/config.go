@@ -17,9 +17,10 @@ import (
 
 // Config represents the root of config.yaml.
 type Config struct {
-	Bot      BotConfig       `yaml:"bot"`
-	Server   ServerConfig    `yaml:"server"`
-	Commands []CommandConfig `yaml:"commands"`
+	Bot       BotConfig                 `yaml:"bot"`
+	Executors map[string]ExecutorConfig `yaml:"executors"`
+	Server    ServerConfig              `yaml:"server"`
+	Commands  []CommandConfig           `yaml:"commands"`
 }
 
 // BotConfig holds Discord bot credentials and script execution policies.
@@ -30,11 +31,36 @@ type BotConfig struct {
 	Token            string `yaml:"-"`
 }
 
-// ServerConfig defines routing parameters, regex parsers, and tmux targets for a server.
+// ExecutorType identifies which transport an ExecutorConfig describes.
+type ExecutorType string
+
+const (
+	ExecutorTypeTmux ExecutorType = "tmux"
+	ExecutorTypeRcon ExecutorType = "rcon"
+)
+
+// ExecutorConfig describes a named executor entry in config.yaml.
+// Only the fields relevant to the chosen Type need to be set.
+type ExecutorConfig struct {
+	Type ExecutorType `yaml:"type"`
+
+	// tmux fields
+	Session string `yaml:"session"`
+	Window  int    `yaml:"window"`
+	Pane    int    `yaml:"pane"`
+
+	// rcon fields
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	PasswordEnv string `yaml:"password_env"` // name of the env var holding the password
+	Password    string `yaml:"-"`            // resolved at load time
+}
+
+// ServerConfig defines routing parameters, regex parsers, and Discord targets.
 type ServerConfig struct {
-	TmuxSession string `yaml:"tmux_session"`
-	TmuxWindow  int    `yaml:"tmux_window"`
-	TmuxPane    int    `yaml:"tmux_pane"`
+	// ChatExecutor is the name of the executor used for Discord→Game chat.
+	// Required when chat_template is set.
+	ChatExecutor string `yaml:"chat_executor"`
 
 	DiscordWebhookURL string
 
@@ -66,25 +92,34 @@ type RegexParsers struct {
 	Ignore  string `yaml:"ignore"`
 }
 
+// CommandType identifies the execution method for a slash command.
 type CommandType string
 
 const (
 	CommandTypeTmux     CommandType = "tmux"
+	CommandTypeRcon     CommandType = "rcon"
 	CommandTypeScript   CommandType = "script"
 	CommandTypeInternal CommandType = "internal"
 )
 
 // CommandConfig defines an executable slash command.
 type CommandConfig struct {
-	Name           string           `yaml:"name"`
-	Description    string           `yaml:"description"`
-	Type           CommandType      `yaml:"type"`
-	ScriptPath     string           `yaml:"script_path"`
-	Template       string           `yaml:"template"`
-	Permissions    PermissionConfig `yaml:"permissions"`
-	CommandTimeout time.Duration    `yaml:"script_timeout"`
-	StaticArgs     []string         `yaml:"static_args"`
-	Arguments      []ArgumentConfig `yaml:"arguments"`
+	Name        string           `yaml:"name"`
+	Description string           `yaml:"description"`
+	Type        CommandType      `yaml:"type"`
+	Permissions PermissionConfig `yaml:"permissions"`
+	Arguments   []ArgumentConfig `yaml:"arguments"`
+
+	ExecutorName string `yaml:"executor"`
+
+	// Template is the command string sent to the executor.
+	// Supports {{.argname}} placeholders.
+	Template string `yaml:"template"`
+
+	// Script-specific fields (type: script only).
+	ScriptPath     string        `yaml:"script_path"`
+	StaticArgs     []string      `yaml:"static_args"`
+	CommandTimeout time.Duration `yaml:"script_timeout"`
 }
 
 // PermissionConfig defines access control lists for a command.
@@ -93,6 +128,7 @@ type PermissionConfig struct {
 	AllowedUsers []string `yaml:"allowed_users"`
 }
 
+// VariableType is the Discord option type for a command argument.
 type VariableType string
 
 const (
@@ -100,6 +136,7 @@ const (
 	VariableTypeString VariableType = "string"
 )
 
+// ArgumentConfig defines a single slash command option.
 type ArgumentConfig struct {
 	Name        string       `yaml:"name"`
 	Type        VariableType `yaml:"type"`
@@ -107,17 +144,36 @@ type ArgumentConfig struct {
 	Required    bool         `yaml:"required"`
 }
 
+// ReferencedExecutorNames returns every executor name referenced by commands and the server chat config.
+func (c *Config) ReferencedExecutorNames() []string {
+	seen := make(map[string]struct{})
+	var names []string
+
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+
+	add(c.Server.ChatExecutor)
+	for _, cmd := range c.Commands {
+		add(cmd.ExecutorName)
+	}
+	return names
+}
+
 func (c *Config) applyDefaults() {
 	if c.Bot.LogLevel == "" {
 		c.Bot.LogLevel = "info"
 	}
-
 	if c.Server.ChatTimeout == 0 {
 		c.Server.ChatTimeout = 5 * time.Second
 	}
-
 	for i := range c.Commands {
-		// Prevent instant context cancellation on script/command executions
 		if c.Commands[i].CommandTimeout == 0 {
 			c.Commands[i].CommandTimeout = 10 * time.Second
 		}
@@ -172,9 +228,12 @@ func validateCommand(cmd CommandConfig) error {
 	}
 
 	switch cmd.Type {
-	case CommandTypeTmux:
+	case CommandTypeTmux, CommandTypeRcon:
+		if cmd.ExecutorName == "" {
+			acc.add(fmt.Errorf("command %q: executor is required for %s type", cmd.Name, cmd.Type))
+		}
 		if cmd.Template == "" {
-			acc.add(fmt.Errorf("command %q: template is required for tmux type", cmd.Name))
+			acc.add(fmt.Errorf("command %q: template is required for %s type", cmd.Name, cmd.Type))
 		}
 	case CommandTypeScript:
 		if cmd.ScriptPath == "" {
@@ -183,9 +242,9 @@ func validateCommand(cmd CommandConfig) error {
 	case CommandTypeInternal:
 		// no extra fields required
 	case "":
-		acc.add(fmt.Errorf("command %q: type is required (tmux, script, internal)", cmd.Name))
+		acc.add(fmt.Errorf("command %q: type is required (tmux, rcon, script, internal)", cmd.Name))
 	default:
-		acc.add(fmt.Errorf("command %q: unknown type %q (expected tmux, script, internal)", cmd.Name, cmd.Type))
+		acc.add(fmt.Errorf("command %q: unknown type %q (expected tmux, rcon, script, internal)", cmd.Name, cmd.Type))
 	}
 
 	for i, arg := range cmd.Arguments {
@@ -224,6 +283,33 @@ func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
 	return acc.err()
 }
 
+func validateExecutor(name string, cfg ExecutorConfig) error {
+	acc := &errAccumulator{}
+
+	switch cfg.Type {
+	case ExecutorTypeTmux:
+		if cfg.Session == "" {
+			acc.add(fmt.Errorf("executor %q: session is required for tmux type", name))
+		}
+	case ExecutorTypeRcon:
+		if cfg.Host == "" {
+			acc.add(fmt.Errorf("executor %q: host is required for rcon type", name))
+		}
+		if cfg.Port == 0 {
+			acc.add(fmt.Errorf("executor %q: port is required for rcon type", name))
+		}
+		if cfg.Password == "" {
+			acc.add(fmt.Errorf("executor %q: password_env must point to a non-empty env var", name))
+		}
+	case "":
+		acc.add(fmt.Errorf("executor %q: type is required (tmux, rcon)", name))
+	default:
+		acc.add(fmt.Errorf("executor %q: unknown type %q (expected tmux, rcon)", name, cfg.Type))
+	}
+
+	return acc.err()
+}
+
 func Load(configPath string) (*Config, error) {
 	_ = godotenv.Load()
 
@@ -240,22 +326,34 @@ func Load(configPath string) (*Config, error) {
 
 	cfg.applyDefaults()
 
-	token := os.Getenv(cfg.Bot.TokenEnvVar)
 	acc := &errAccumulator{}
 
+	// Bot token
+	token := os.Getenv(cfg.Bot.TokenEnvVar)
 	if token == "" {
-		acc.add(fmt.Errorf("critical: Discord token environment variable [%s] is empty", cfg.Bot.TokenEnvVar))
+		acc.add(fmt.Errorf("discord token env var [%s] is empty", cfg.Bot.TokenEnvVar))
 	}
 	cfg.Bot.Token = token
 
+	// Webhook URL from env
 	if cfg.Server.DiscordWebhookEnv != "" {
 		cfg.Server.DiscordWebhookURL = os.Getenv(cfg.Server.DiscordWebhookEnv)
 	}
 
+	// Resolve RCON passwords from env
+	for name, ex := range cfg.Executors {
+		if ex.Type == ExecutorTypeRcon && ex.PasswordEnv != "" {
+			ex.Password = os.Getenv(ex.PasswordEnv)
+			cfg.Executors[name] = ex
+		}
+	}
+
+	// Compile regex patterns
 	acc.add(compileRegex("chat", cfg.Server.RegexParsers.Chat, &cfg.Server.CompiledChat))
 	acc.add(compileRegex("join", cfg.Server.RegexParsers.Join, &cfg.Server.CompiledJoin))
 	acc.add(compileRegex("leave", cfg.Server.RegexParsers.Leave, &cfg.Server.CompiledLeave))
 	acc.add(compileRegex("console", cfg.Server.RegexParsers.Console, &cfg.Server.CompiledConsole))
+	acc.add(compileRegex("events", cfg.Server.RegexParsers.Events, &cfg.Server.CompiledEvents))
 	acc.add(compileRegex("ignore", cfg.Server.RegexParsers.Ignore, &cfg.Server.CompiledIgnore))
 
 	if err := acc.err(); err != nil {
@@ -266,9 +364,9 @@ func Load(configPath string) (*Config, error) {
 }
 
 func (c *Config) Validate() error {
-	slog.Info("Validating Server config")
+	slog.Info("validating configuration")
 
-	// Feature status logging
+	// Feature status
 	if c.Server.LogFilePath != "" {
 		slog.Info("log tailing enabled", "file", c.Server.LogFilePath)
 	} else {
@@ -276,44 +374,34 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Server.ChatTemplate != "" {
-		slog.Info("Discord -> Game chat send enabled")
+		if c.Server.ChatExecutor == "" {
+			return fmt.Errorf("chat_template is set but chat_executor is missing")
+		}
+		slog.Info("Discord→Game chat enabled", "executor", c.Server.ChatExecutor)
 	} else {
-		slog.Warn("Discord -> Game chat disabled — chat_template not set")
+		slog.Warn("Discord→Game chat disabled — chat_template not set")
 	}
 
 	if c.Server.DiscordChatChannelID != "" {
-		slog.Info("Game -> Discord forwarding enabled",
-			"channel", c.Server.DiscordChatChannelID)
+		slog.Info("Game→Discord forwarding enabled", "channel", c.Server.DiscordChatChannelID)
 	} else {
 		slog.Warn("Game→Discord forwarding disabled — discord_chat_channel_id not set")
 	}
 
-	if c.Server.DiscordWebhookURL == "" && c.Server.DiscordChatChannelID != "" { //nolint:nestif //reason: It's ok for validation
-		slog.Warn("no webhook URL — messages will appear from bot account")
-	} else {
-		// Regex Validation
-		if c.Server.RegexParsers.Chat == "" {
-			slog.Warn("'regex_parsers.chat' is empty. In-game chat will NOT be forwarded to Discord.")
-		}
-		if c.Server.RegexParsers.Join == "" {
-			slog.Warn("'regex_parsers.join' is empty. Join events will be ignored.")
-		}
-		if c.Server.RegexParsers.Leave == "" {
-			slog.Warn("'regex_parsers.leave' is empty. Leave events will be ignored.")
-		}
-		if c.Server.RegexParsers.Console == "" {
-			slog.Warn("'regex_parsers.console' is empty. Console events will be ignored.")
-		}
-		if c.Server.RegexParsers.Ignore == "" {
-			slog.Warn("'regex_parsers.ignore' is empty. Ignore events will be ignored.")
-		}
+	if c.Server.DiscordWebhookURL == "" && c.Server.DiscordChatChannelID != "" {
+		slog.Warn("no webhook URL — messages will appear from bot account, not player names")
 	}
 
 	acc := &errAccumulator{}
-	// Command validation — all errors collected, returned together
+
+	// Validate executors
+	for name, ex := range c.Executors {
+		acc.add(validateExecutor(name, ex))
+	}
+
+	// Validate commands
 	if len(c.Commands) > 0 {
 		slog.Info("validating commands", "count", len(c.Commands))
-
 		names := make(map[string]struct{}, len(c.Commands))
 		for _, cmd := range c.Commands {
 			if _, duplicate := names[cmd.Name]; duplicate {

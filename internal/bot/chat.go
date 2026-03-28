@@ -9,48 +9,51 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
-	"github.com/vinegod/discordgamebridge/internal/executor"
 )
 
-// onMessageCreate processes Discord messages and forwards them to the game console via tmux.
+// onMessageCreate processes Discord messages and forwards them to the game server via the configured chat executor.
 func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
-	// Ignore bots (prevents endless feedback loops if the bot reads its own messages)
 	if event.Message.Author.Bot {
 		return
 	}
 
-	if event.Message.ChannelID.String() == b.config.Server.DiscordChatChannelID {
-		cleanText := resolveMentions(&event.Message)
-		safeMessage := sanitizeChat(cleanText)
+	if event.Message.ChannelID.String() != b.cfg.Server.DiscordChatChannelID {
+		return
+	}
 
-		if safeMessage == "" {
-			return
-		}
+	cleanText := resolveMentions(&event.Message)
+	safeMessage := sanitizeChat(cleanText)
+	if safeMessage == "" {
+		return
+	}
 
-		const maxGameChatLength = 200
-		runes := []rune(safeMessage)
-		if len(runes) > maxGameChatLength {
-			safeMessage = string(runes[:maxGameChatLength])
-		}
+	const maxGameChatLength = 200
+	if runes := []rune(safeMessage); len(runes) > maxGameChatLength {
+		safeMessage = string(runes[:maxGameChatLength])
+	}
 
-		authorName := getSafeName(&event.Message.Author)
+	authorName := getSafeName(&event.Message.Author)
 
-		gameCommand := b.config.Server.ChatTemplate
-		gameCommand = strings.ReplaceAll(gameCommand, "{{.user}}", authorName)
-		gameCommand = strings.ReplaceAll(gameCommand, "{{.message}}", safeMessage)
+	gameCommand := b.cfg.Server.ChatTemplate
+	gameCommand = strings.ReplaceAll(gameCommand, "{{.user}}", authorName)
+	gameCommand = strings.ReplaceAll(gameCommand, "{{.message}}", safeMessage)
 
-		ctx, cancel := context.WithTimeout(b.ctx, b.config.Server.ChatTimeout)
-		defer cancel()
+	ex, err := b.executors.Get(b.cfg.Server.ChatExecutor)
+	if err != nil {
+		slog.Error("chat executor not found", "executor", b.cfg.Server.ChatExecutor, "error", err)
+		return
+	}
 
-		err := executor.SendCommand(ctx, b.config.Server.TmuxSession, b.config.Server.TmuxWindow, b.config.Server.TmuxPane, gameCommand)
-		if err != nil {
-			slog.Error("Failed to send chat to tmux.", "Error", err)
-		}
+	ctx, cancel := context.WithTimeout(b.ctx, b.cfg.Server.ChatTimeout)
+	defer cancel()
+
+	if _, err := ex.Send(ctx, gameCommand); err != nil {
+		slog.Error("failed to send chat to game", "executor", b.cfg.Server.ChatExecutor, "error", err)
 	}
 }
 
 // getSafeName removes emojis and unsupported symbols from a username.
-// If the resulting name is completely empty, it falls back to the user's Discord ID.
+// Falls back to the user's Discord ID if the cleaned name is empty.
 func getSafeName(user *discord.User) string {
 	var name string
 	if user.GlobalName != nil && *user.GlobalName != "" {
@@ -73,7 +76,7 @@ func getSafeName(user *discord.User) string {
 	return user.ID.String()
 }
 
-// resolveMentions replaces <@ID> with @Username (or @ID if the username is unprintable).
+// resolveMentions replaces <@ID> with @Username (or @ID if unprintable).
 func resolveMentions(msg *discord.Message) string {
 	content := msg.Content
 
@@ -91,21 +94,17 @@ func resolveMentions(msg *discord.Message) string {
 	return content
 }
 
-// sanitizeChat strictly removes newlines and terminal control characters.
+// sanitizeChat removes control characters and non-printable runes to prevent tmux injection or malformed game console input.
 func sanitizeChat(input string) string {
 	var builder strings.Builder
 
 	for _, ch := range input {
-		// Drop ALL control characters (Newlines, Returns, Ctrl+C, Escape sequences)
 		if unicode.IsControl(ch) {
 			continue
 		}
-
-		// Drop non-printable characters (invisible zero-width spaces, etc.)
 		if !unicode.IsPrint(ch) {
 			continue
 		}
-
 		builder.WriteRune(ch)
 	}
 

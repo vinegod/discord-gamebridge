@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/disgoorg/disgo"
@@ -19,20 +20,25 @@ import (
 // BotWrapper encapsulates the Discord client and handles slash command routing and execution.
 type BotWrapper struct {
 	Client     *bot.Client
-	config     config.Config
+	cfg        config.Config
 	commandMap map[string]*config.CommandConfig
+	executors  *executor.Registry
 	ctx        context.Context
 	reloadCh   chan struct{}
 }
 
-func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*BotWrapper, error) {
-	b := &BotWrapper{config: cfg, ctx: ctx, reloadCh: reloadCh}
+func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}, reg *executor.Registry) (*BotWrapper, error) {
+	b := &BotWrapper{
+		cfg:       cfg,
+		executors: reg,
+		ctx:       ctx,
+		reloadCh:  reloadCh,
+	}
 
 	intents := gateway.IntentGuildMessages
-	opts := []bot.ConfigOpt{}
+	var opts []bot.ConfigOpt
 
 	if cfg.Server.ChatTemplate != "" {
-		intents |= gateway.IntentGuildMessages
 		intents |= gateway.IntentMessageContent
 		opts = append(opts, bot.WithEventListenerFunc(b.onMessageCreate))
 	}
@@ -42,6 +48,7 @@ func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}) (*Bo
 	}
 
 	opts = append(opts, bot.WithGatewayConfigOpts(gateway.WithIntents(intents)))
+
 	client, err := disgo.New(cfg.Bot.Token, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bot: %w", err)
@@ -60,7 +67,7 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 	commandName := event.Data.CommandName()
 	cmdCfg, ok := b.commandMap[commandName]
 	if !ok {
-		slog.Warn("Command not found", "name", commandName)
+		slog.Warn("command not found", "name", commandName)
 		return
 	}
 
@@ -73,14 +80,14 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 	}
 
 	switch cmdCfg.Type {
-	case config.CommandTypeTmux:
-		b.handleTmuxCommand(b.ctx, event, cmdCfg)
+	case config.CommandTypeTmux, config.CommandTypeRcon:
+		b.handleExecutorCommand(b.ctx, event, cmdCfg)
 	case config.CommandTypeScript:
 		b.handleScriptCommand(b.ctx, event, cmdCfg)
 	case config.CommandTypeInternal:
 		b.handleInternalCommand(event, cmdCfg)
 	default:
-		slog.Error("Unknown command type.", "Name", cmdCfg.Name, "Type", cmdCfg.Type)
+		slog.Error("unknown command type", "name", cmdCfg.Name, "type", cmdCfg.Type)
 	}
 }
 
@@ -100,58 +107,69 @@ func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCr
 }
 
 func checkPermission(userID string, memberRoleIDs []string, perms config.PermissionConfig) bool {
-	for _, id := range perms.AllowedUsers {
-		if id == userID {
-			return true
-		}
+	if slices.Contains(perms.AllowedUsers, userID) {
+		return true
 	}
 
 	for _, allowedRole := range perms.AllowedRoles {
 		if allowedRole == "@everyone" {
 			return true
 		}
-		for _, memberRole := range memberRoleIDs {
-			if allowedRole == memberRole {
-				return true
-			}
+		if slices.Contains(memberRoleIDs, allowedRole) {
+			return true
 		}
 	}
 
 	return false
 }
 
-// handleTmuxCommand formats and sends a command directly to the target tmux pane.
-func (b *BotWrapper) handleTmuxCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
-	data := event.SlashCommandInteractionData()
-	finalCmd := cmdCfg.Template
-
-	for _, arg := range cmdCfg.Arguments {
-		placeholder := "{{." + arg.Name + "}}"
-		if val, ok := data.OptString(arg.Name); ok {
-			finalCmd = strings.ReplaceAll(finalCmd, placeholder, val)
-		} else {
-			// Remove unfilled optional placeholders
-			finalCmd = strings.ReplaceAll(finalCmd, placeholder, "")
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
-	defer cancel()
-
-	err := executor.SendCommand(ctx, b.config.Server.TmuxSession, b.config.Server.TmuxWindow, b.config.Server.TmuxPane, finalCmd)
+// handleExecutorCommand handles both tmux and rcon command types.
+func (b *BotWrapper) handleExecutorCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
+	ex, err := b.executors.Get(cmdCfg.ExecutorName)
 	if err != nil {
-		if err := event.CreateMessage(discord.MessageCreate{Content: "Failed to execute command: " + err.Error()}); err != nil {
-			slog.Error("Failed to respond to user.", "Command", cmdCfg.Name, "error", err.Error())
+		if err := event.CreateMessage(discord.MessageCreate{
+			Content: fmt.Sprintf("Configuration error: %v", err),
+			Flags:   discord.MessageFlagEphemeral,
+		}); err != nil {
+			slog.Error("failed to respond to user", "command", cmdCfg.Name, "error", err)
 		}
 		return
 	}
 
-	if err := event.CreateMessage(discord.MessageCreate{Content: "Command executed successfully in Tmux!"}); err != nil {
-		slog.Error("Failed to respond to user.", "Command", cmdCfg.Name, "error", err.Error())
+	finalCmd := buildCommand(cmdCfg.Template, cmdCfg.Arguments, event.SlashCommandInteractionData())
+
+	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
+	defer cancel()
+
+	output, err := ex.Send(ctx, finalCmd)
+	if err != nil {
+		if err := event.CreateMessage(discord.MessageCreate{
+			Content: fmt.Sprintf("Failed to execute command: %v", err),
+		}); err != nil {
+			slog.Error("failed to respond to user", "command", cmdCfg.Name, "error", err)
+		}
+		return
+	}
+
+	var response string
+	if strings.TrimSpace(output) != "" {
+		// RCON returned actual output — show it.
+		runes := []rune(fmt.Sprintf("```\n%s\n```", output))
+		if len(runes) > 1950 {
+			runes = append(runes[:1950], []rune("\n...[Truncated]```")...)
+		}
+		response = string(runes)
+	} else {
+		// tmux or RCON with empty response — confirm success.
+		response = fmt.Sprintf("✅ `%s` executed.", cmdCfg.Name)
+	}
+
+	if err := event.CreateMessage(discord.MessageCreate{Content: response}); err != nil {
+		slog.Error("failed to respond to user", "command", cmdCfg.Name, "error", err)
 	}
 }
 
-// handleScriptCommand parses arguments and triggers local shell scripts, responding with the output.
+// handleScriptCommand runs a local shell script and responds with its output.
 func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
 	_ = event.DeferCreateMessage(false)
 
@@ -171,7 +189,7 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
 
-	output, err := executor.RunScript(ctx, cmdCfg.ScriptPath, b.config.Bot.AllowedScriptDir, args)
+	output, err := executor.RunScript(ctx, cmdCfg.ScriptPath, b.cfg.Bot.AllowedScriptDir, args)
 
 	response := fmt.Sprintf("Script Output:\n```text\n%s\n```", output)
 	if err != nil {
@@ -190,16 +208,16 @@ func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.Appl
 
 // SyncCommands registers the configured commands with the Discord API globally.
 func (b *BotWrapper) SyncCommands() error {
-	if len(b.config.Commands) == 0 {
+	if len(b.cfg.Commands) == 0 {
 		slog.Info("no commands configured, skipping command sync")
 		return nil
 	}
 
-	appCommands := make([]discord.ApplicationCommandCreate, len(b.config.Commands))
-	for idx := range b.config.Commands {
+	appCommands := make([]discord.ApplicationCommandCreate, len(b.cfg.Commands))
+	for idx := range b.cfg.Commands {
 		var options []discord.ApplicationCommandOption
 
-		for _, arg := range b.config.Commands[idx].Arguments {
+		for _, arg := range b.cfg.Commands[idx].Arguments {
 			if arg.Type == config.VariableTypeBool {
 				options = append(options, discord.ApplicationCommandOptionBool{
 					Name:        arg.Name,
@@ -216,8 +234,8 @@ func (b *BotWrapper) SyncCommands() error {
 		}
 
 		appCommands[idx] = discord.SlashCommandCreate{
-			Name:        b.config.Commands[idx].Name,
-			Description: b.config.Commands[idx].Description,
+			Name:        b.cfg.Commands[idx].Name,
+			Description: b.cfg.Commands[idx].Description,
 			Options:     options,
 		}
 	}
@@ -239,19 +257,17 @@ func (b *BotWrapper) handleInternalCommand(event *events.ApplicationCommandInter
 	case "ping":
 		b.executePing(event)
 	default:
-		slog.Warn("Unhandled internal command invoked", "command", cmdCfg.Name)
+		slog.Warn("unhandled internal command", "command", cmdCfg.Name)
 		_ = event.CreateMessage(discord.MessageCreate{
 			Content: fmt.Sprintf("Unknown internal command: `%s`", cmdCfg.Name),
 		})
 	}
 }
 
-// executeReload signals the main loop to rebuild components.
 func (b *BotWrapper) executeReload(event *events.ApplicationCommandInteractionCreate) {
 	_ = event.CreateMessage(discord.MessageCreate{
 		Content: "Reloading configuration and restarting services...",
 	})
-
 	select {
 	case b.reloadCh <- struct{}{}:
 	default:
@@ -259,16 +275,27 @@ func (b *BotWrapper) executeReload(event *events.ApplicationCommandInteractionCr
 	}
 }
 
-// executeVersion returns the current bot binary version.
 func (b *BotWrapper) executeVersion(event *events.ApplicationCommandInteractionCreate) {
 	_ = event.CreateMessage(discord.MessageCreate{
 		Content: fmt.Sprintf("discord-gamebridge version: `%s`", version.Version),
 	})
 }
 
-// executePing verifies Discord API latency and bot responsiveness.
 func (b *BotWrapper) executePing(event *events.ApplicationCommandInteractionCreate) {
-	_ = event.CreateMessage(discord.MessageCreate{
-		Content: "Pong! Bot is operational.",
-	})
+	_ = event.CreateMessage(discord.MessageCreate{Content: "Pong! Bot is operational."})
+}
+
+// buildCommand substitutes {{.argname}} placeholders in tmpl with values
+// from the slash command interaction data, removing unfilled optional ones.
+func buildCommand(tmpl string, args []config.ArgumentConfig, data discord.SlashCommandInteractionData) string {
+	result := tmpl
+	for _, arg := range args {
+		placeholder := "{{." + arg.Name + "}}"
+		if val, ok := data.OptString(arg.Name); ok {
+			result = strings.ReplaceAll(result, placeholder, val)
+		} else {
+			result = strings.ReplaceAll(result, placeholder, "")
+		}
+	}
+	return strings.TrimSpace(result)
 }

@@ -14,10 +14,11 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/bot"
 	"github.com/vinegod/discordgamebridge/internal/config"
 	"github.com/vinegod/discordgamebridge/internal/discord"
+	"github.com/vinegod/discordgamebridge/internal/executor"
 	"github.com/vinegod/discordgamebridge/internal/server"
 )
 
-// internal/app/app.go.
+// App holds top-level application state.
 type App struct {
 	configPath string
 	ForceDebug bool
@@ -31,7 +32,7 @@ func New(configPath string) *App {
 	}
 }
 
-// Runs app and blocks until a reload/shutdown signal is received.
+// Run blocks until a shutdown or reload signal is received.
 func (a *App) Run() error {
 	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer rootCancel()
@@ -44,9 +45,8 @@ func (a *App) Run() error {
 			return fmt.Errorf("failed to start app: %w", err)
 		}
 
-		slog.Info("Application started")
+		slog.Info("application started")
 
-		// Block until the OS stops the app, OR a reload is requested
 		select {
 		case <-rootCtx.Done():
 			slog.Info("OS interrupt received, shutting down")
@@ -55,7 +55,7 @@ func (a *App) Run() error {
 			return nil
 
 		case <-a.reloadCh:
-			slog.Info("Reload signal received, restarting components...")
+			slog.Info("reload signal received, restarting components...")
 			cleanup()
 			cancelRun()
 		}
@@ -83,37 +83,53 @@ func (a *App) LoadConfiguration() (*config.Config, error) {
 	return cfg, nil
 }
 
-// Start initializes the application and returns cleanup function.
+// Start initializes all components and returns a cleanup function.
 func (a *App) Start(ctx context.Context) (func(), error) {
 	cfg, err := a.LoadConfiguration()
 	if err != nil {
 		return nil, err
 	}
 
+	// Build executor registry from config
+	reg, err := buildRegistry(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build executors: %w", err)
+	}
+
+	// Validate all executor names referenced in commands and chat config
+	if err := reg.ValidateNames(cfg.ReferencedExecutorNames()); err != nil {
+		reg.CloseAll()
+		return nil, fmt.Errorf("config references unknown executors: %w", err)
+	}
+
 	slog.Info("initializing Discord bot")
 
-	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh)
+	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh, reg)
 	if err != nil {
+		reg.CloseAll()
 		return nil, fmt.Errorf("create bot: %w", err)
 	}
 
 	if err := discordBot.Client.OpenGateway(ctx); err != nil {
+		reg.CloseAll()
 		return nil, fmt.Errorf("open gateway: %w", err)
 	}
 	slog.Info("connected to Discord gateway")
 
 	if err := discordBot.SyncCommands(); err != nil {
+		reg.CloseAll()
 		return nil, fmt.Errorf("sync commands: %w", err)
 	}
-	slog.Info("slash commands synchronized")
 
 	var sender *discord.Sender
 	if cfg.Server.LogFilePath != "" {
 		sender, err = buildSender(ctx, cfg, discordBot)
 		if err != nil {
+			reg.CloseAll()
 			return nil, fmt.Errorf("build sender: %w", err)
 		}
 		if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
+			reg.CloseAll()
 			return nil, fmt.Errorf("start tailer: %w", err)
 		}
 		slog.Info("log tailer started", "file", cfg.Server.LogFilePath)
@@ -128,13 +144,44 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 		if sender != nil {
 			sender.Stop()
 		}
+		reg.CloseAll()
 		slog.Info("cleanup complete")
 	}
 
 	return cleanup, nil
 }
 
-// buildSender constructs and starts the Discord message sender for the configured server channel.
+// buildRegistry creates an executor for each entry in cfg.Executors.
+func buildRegistry(cfg *config.Config) (*executor.Registry, error) {
+	reg := executor.NewRegistry()
+
+	for name, ex := range cfg.Executors {
+		switch ex.Type {
+		case config.ExecutorTypeTmux:
+			reg.Register(name, &executor.TmuxExecutor{
+				Session: ex.Session,
+				Window:  ex.Window,
+				Pane:    ex.Pane,
+			})
+			slog.Info("registered tmux executor", "name", name, "session", ex.Session)
+
+		case config.ExecutorTypeRcon:
+			rconEx, err := executor.NewRconExecutor(ex.Host, ex.Port, ex.Password)
+			if err != nil {
+				return nil, fmt.Errorf("executor %q: %w", name, err)
+			}
+			reg.Register(name, rconEx)
+			slog.Info("registered rcon executor", "name", name, "address", fmt.Sprintf("%s:%d", ex.Host, ex.Port))
+
+		default:
+			return nil, fmt.Errorf("executor %q: unsupported type %q", name, ex.Type)
+		}
+	}
+
+	return reg, nil
+}
+
+// buildSender constructs and starts the Discord message sender.
 func buildSender(ctx context.Context, cfg *config.Config, discordBot *bot.BotWrapper) (*discord.Sender, error) {
 	if cfg.Server.DiscordChatChannelID == "" {
 		slog.Warn("discord_chat_channel_id not set, game→Discord forwarding disabled")
@@ -174,7 +221,6 @@ func buildSender(ctx context.Context, cfg *config.Config, discordBot *bot.BotWra
 	return sender, nil
 }
 
-// configureLogger sets the global slog handler, defaulting to Info if the provided level is invalid.
 func configureLogger(levelStr string) {
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(levelStr)); err != nil {
