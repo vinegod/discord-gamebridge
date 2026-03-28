@@ -285,17 +285,35 @@ func (b *BotWrapper) executePing(event *events.ApplicationCommandInteractionCrea
 	_ = event.CreateMessage(discord.MessageCreate{Content: "Pong! Bot is operational."})
 }
 
-// buildCommand substitutes {{.argname}} placeholders in tmpl with values
-// from the slash command interaction data, removing unfilled optional ones.
+// buildCommand extracts argument values from the interaction.
 func buildCommand(tmpl string, args []config.ArgumentConfig, data discord.SlashCommandInteractionData) string {
-	result := tmpl
+	values := make(map[string]string, len(args))
 	for _, arg := range args {
-		placeholder := "{{." + arg.Name + "}}"
 		if val, ok := data.OptString(arg.Name); ok {
-			result = strings.ReplaceAll(result, placeholder, val)
-		} else {
-			result = strings.ReplaceAll(result, placeholder, "")
+			values[arg.Name] = val
 		}
+	}
+	return substituteTemplate(tmpl, values)
+}
+
+// substituteTemplate replaces {{.key}} placeholders in tmpl with values
+// from the provided map, removing placeholders with no corresponding value.
+func substituteTemplate(tmpl string, values map[string]string) string {
+	result := tmpl
+	for k, v := range values {
+		result = strings.ReplaceAll(result, "{{."+k+"}}", v)
+	}
+	// Remove any remaining unfilled placeholders (optional args not provided).
+	for {
+		start := strings.Index(result, "{{.")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result[start:], "}}")
+		if end == -1 {
+			break
+		}
+		result = result[:start] + result[start+end+2:]
 	}
 	return strings.TrimSpace(result)
 }
