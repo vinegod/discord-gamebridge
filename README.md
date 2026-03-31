@@ -63,12 +63,24 @@ DISCORD_WEBHOOK="https://discord.com/api/webhooks/xxx"
 bot:
   token_env_var: "DISCORD_TOKEN"
   log_level: "info"
-  allowed_script_dir: "/home/user/scripts"
+
+
+executors:
+  tmux:
+    type: "tmux"
+    session: "terraria_server"
+    window: 1
+    pane: 1
+
+  script:
+  type: "script"
+    allowed_script_dir: "/home/user/scripts"
 
 server:
-  tmux_session: "terraria_server"
+
   discord_chat_channel_id: "123456789012345678"
   chat_template: "say {{.user}} {{.message}}"
+  chat_executor: "tmux"
   log_file_path: "/home/user/terraria_server/logs/server.log"
 
   regex_parsers:
@@ -121,6 +133,7 @@ The following features are planned for future implementation:
 
 - [x] CLI support: Add possibility to pass different configuration and other parameters via CLI.
 - [x] Config reload command: reload configuration without restarting bot.
+- [x] Add RCON support
 - [ ] Docs: Add more documentation and examples.
 - [ ] Better template support: current chat template is very limited, Go provides much better tools for it.
 - [ ] Interactive Confirmations: Discord UI buttons to confirm or cancel commands.
