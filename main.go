@@ -21,7 +21,7 @@ func main() {
 
 	// 1. Handle Version
 	if *showVersion {
-		fmt.Printf("Discord Gamebridge v%s\n", version.Version)
+		fmt.Printf("Discord Gamebridge %s\n", version.Version)
 		os.Exit(0)
 	}
 
