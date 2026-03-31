@@ -2,7 +2,6 @@
 bot:
   token_env_var: "DISCORD_TOKEN"
   log_level: "info"
-  allowed_script_dir: "/home/user/terraria_server/scripts"
 
 # Shared Server settings
 x-shared:
@@ -21,10 +20,6 @@ x-shared:
 
 # Server settings
 server:
-  tmux_session: *session
-  tmux_window: 1
-  tmux_pane: 1
-
   # Public channel for players
   discord_chat_channel_id: "12345678"
 
@@ -36,6 +31,7 @@ server:
   log_file_path: "/home/user/terraria_server/logs/server.log"
 
   chat_template: "say {{.user}} {{.message}}"
+  chat_executor: "tmux"
   regex_parsers:
     # Matches: <PlayerName> Hello world!
     chat: '^<(?P<player>[^>]+)> (?P<message>.*)$'
@@ -50,11 +46,22 @@ server:
     # Matches: <Server> Hello world! This text won't be send to discord channel.
     ignore: '^<Server> .*$'
 
+executors:
+  tmux:
+    type: "tmux"
+    session: *session
+    window: 1
+    pane: 1
+
+  script:
+    type: "script"
+    allowed_script_dir: "/home/user/terraria_server/scripts"
+
 # Command registry
 commands:
   - name: "kick"
     description: "Kicks a player from the Terraria server"
-    type: "tmux"
+    executor: "tmux"
     script_timeout: 10s
     template: "kick {{.player}} {{.reason}}"
     permissions: *admin_perms
@@ -71,7 +78,7 @@ commands:
   # Start server
   - name: "start"
     description: "Boots the Terraria server"
-    type: "script"
+    executor: "script"
     target_bridge: "terraria_main"
     script_path: "start.sh"
     script_timeout: 25s
@@ -81,7 +88,7 @@ commands:
   # Stop server
   - name: "stop"
     description: "Safely saves and stops the Terraria server"
-    type: "script"
+    executor: "script"
     script_path: "stop.sh"
     script_timeout: 65s
     permissions: *admin_perms
@@ -91,7 +98,7 @@ commands:
   # Restart server
   - name: "restart"
     description: "Safely restarts the Terraria server"
-    type: "script"
+    executor: "script"
     script_path: "restart.sh"
     script_timeout: 75s
     permissions: *admin_perms
