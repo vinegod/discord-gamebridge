@@ -80,10 +80,8 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 	}
 
 	switch cmdCfg.Type {
-	case config.CommandTypeTmux, config.CommandTypeRcon:
+	case config.CommandTypeExecutor, config.CommandTypeScript:
 		b.handleExecutorCommand(b.ctx, event, cmdCfg)
-	case config.CommandTypeScript:
-		b.handleScriptCommand(b.ctx, event, cmdCfg)
 	case config.CommandTypeInternal:
 		b.handleInternalCommand(event, cmdCfg)
 	default:
@@ -123,87 +121,93 @@ func checkPermission(userID string, memberRoleIDs []string, perms config.Permiss
 	return false
 }
 
-// handleExecutorCommand handles both tmux and rcon command types.
+// handleExecutorCommand is the single dispatch point for tmux, rcon, and script types.
 func (b *BotWrapper) handleExecutorCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
 	ex, err := b.executors.Get(cmdCfg.ExecutorName)
 	if err != nil {
-		if err := event.CreateMessage(discord.MessageCreate{
-			Content: fmt.Sprintf("Configuration error: %v", err),
-			Flags:   discord.MessageFlagEphemeral,
-		}); err != nil {
-			slog.Error("failed to respond to user", "command", cmdCfg.Name, "error", err)
-		}
+		replyEphemeral(event, fmt.Sprintf("Configuration error: %v", err))
 		return
 	}
 
-	finalCmd := buildCommand(cmdCfg.Template, cmdCfg.Arguments, event.SlashCommandInteractionData())
+	data := event.SlashCommandInteractionData()
+	command, args, deferred := buildExecutorInput(cmdCfg, data, event)
 
 	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
 
-	output, err := ex.Send(ctx, finalCmd)
-	if err != nil {
-		if err := event.CreateMessage(discord.MessageCreate{
-			Content: fmt.Sprintf("Failed to execute command: %v", err),
-		}); err != nil {
-			slog.Error("failed to respond to user", "command", cmdCfg.Name, "error", err)
-		}
-		return
-	}
+	output, err := ex.Send(ctx, command, args...)
 
-	var response string
-	if strings.TrimSpace(output) != "" {
-		// RCON returned actual output — show it.
-		runes := []rune(fmt.Sprintf("```\n%s\n```", output))
-		if len(runes) > 1950 {
-			runes = append(runes[:1950], []rune("\n...[Truncated]```")...)
-		}
-		response = string(runes)
+	if deferred {
+		replyDeferred(b.Client, event, output, err)
 	} else {
-		// tmux or RCON with empty response — confirm success.
-		response = fmt.Sprintf("✅ `%s` executed.", cmdCfg.Name)
-	}
-
-	if err := event.CreateMessage(discord.MessageCreate{Content: response}); err != nil {
-		slog.Error("failed to respond to user", "command", cmdCfg.Name, "error", err)
+		replyImmediate(event, cmdCfg.Name, output, err)
 	}
 }
 
-// handleScriptCommand runs a local shell script and responds with its output.
-func (b *BotWrapper) handleScriptCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
-	_ = event.DeferCreateMessage(false)
-
-	args := append([]string{}, cmdCfg.StaticArgs...)
-	data := event.SlashCommandInteractionData()
-
-	for _, argConfig := range cmdCfg.Arguments {
-		if val, ok := data.OptString(argConfig.Name); ok {
-			args = append(args, val)
-		} else if valBool, ok := data.OptBool(argConfig.Name); ok {
-			if valBool {
-				args = append(args, "--"+argConfig.Name)
+func buildExecutorInput(cmdCfg *config.CommandConfig, data discord.SlashCommandInteractionData, event *events.ApplicationCommandInteractionCreate) (command string, args []string, deferred bool) {
+	if cmdCfg.Type == config.CommandTypeScript {
+		args = append([]string{}, cmdCfg.StaticArgs...)
+		for _, arg := range cmdCfg.Arguments {
+			if val, ok := data.OptString(arg.Name); ok {
+				args = append(args, val)
+			} else if val, ok := data.OptBool(arg.Name); ok && val {
+				args = append(args, "--"+arg.Name)
 			}
 		}
+		_ = event.DeferCreateMessage(false)
+		return cmdCfg.ScriptPath, args, true
 	}
+	return buildCommand(cmdCfg.Template, cmdCfg.Arguments, data), nil, false
+}
 
-	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
-	defer cancel()
-
-	output, err := executor.RunScript(ctx, cmdCfg.ScriptPath, b.cfg.Bot.AllowedScriptDir, args)
-
-	response := fmt.Sprintf("Script Output:\n```text\n%s\n```", output)
+// replyDeferred updates a previously deferred interaction with script output.
+func replyDeferred(client *bot.Client, event *events.ApplicationCommandInteractionCreate, output string, err error) {
+	var response string
 	if err != nil {
 		response = fmt.Sprintf("Script Failed: %v\n```text\n%s\n```", err, output)
+	} else {
+		response = fmt.Sprintf("Script Output:\n```text\n%s\n```", output)
 	}
-
-	runes := []rune(response)
-	if len(runes) > 1950 {
-		response = string(runes[:1950]) + "\n...[Output Truncated]```"
-	}
-
-	_, _ = b.Client.Rest.UpdateInteractionResponse(event.ApplicationID(), event.Token(), discord.MessageUpdate{
+	response = truncateResponse(response)
+	_, _ = client.Rest.UpdateInteractionResponse(event.ApplicationID(), event.Token(), discord.MessageUpdate{
 		Content: &response,
 	})
+}
+
+// replyImmediate responds to a tmux or rcon command.
+func replyImmediate(event *events.ApplicationCommandInteractionCreate, cmdName string, output string, err error) {
+	if err != nil {
+		replyEphemeral(event, fmt.Sprintf("Failed to execute command: %v", err))
+		return
+	}
+	var response string
+	if strings.TrimSpace(output) != "" {
+		response = truncateResponse(fmt.Sprintf("```\n%s\n```", output))
+	} else {
+		response = fmt.Sprintf("✅ `%s` executed.", cmdName)
+	}
+	if err := event.CreateMessage(discord.MessageCreate{Content: response}); err != nil {
+		slog.Error("failed to respond to user", "command", cmdName, "error", err)
+	}
+}
+
+// replyEphemeral sends a message visible only to the invoking user.
+func replyEphemeral(event *events.ApplicationCommandInteractionCreate, content string) {
+	if err := event.CreateMessage(discord.MessageCreate{
+		Content: content,
+		Flags:   discord.MessageFlagEphemeral,
+	}); err != nil {
+		slog.Error("failed to send ephemeral reply", "error", err)
+	}
+}
+
+// truncateResponse caps a response at 1950 runes, appending a truncation notice if needed.
+func truncateResponse(s string) string {
+	runes := []rune(s)
+	if len(runes) <= 1950 {
+		return s
+	}
+	return string(runes[:1950]) + "\n...[Truncated]```"
 }
 
 // SyncCommands registers the configured commands with the Discord API globally.

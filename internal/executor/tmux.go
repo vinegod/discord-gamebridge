@@ -15,7 +15,9 @@ type TmuxExecutor struct {
 }
 
 // Send injects command into the configured tmux pane and presses Enter.
-func (e *TmuxExecutor) Send(ctx context.Context, command string) (string, error) {
+// Uses the two-step send-keys approach (-l for literal text, then C-m for Enter)
+// to prevent shell metacharacters in the command from being interpreted by tmux.
+func (e *TmuxExecutor) Send(ctx context.Context, command string, _ ...string) (string, error) {
 	// TODO: Check G204 issues here and below
 	checkCmd := exec.CommandContext(ctx, "tmux", "has-session", "-t", e.Session) // #nosec G204
 	if err := checkCmd.Run(); err != nil {

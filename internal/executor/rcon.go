@@ -25,17 +25,19 @@ type RconExecutor struct {
 }
 
 // Creates an RconExecutor.
-func NewRconExecutor(host string, port int, password string) (*RconExecutor, error) {
+func NewRconExecutor(host string, port int, password string) *RconExecutor {
 	e := &RconExecutor{
 		address:  fmt.Sprintf("%s:%d", host, port),
 		password: password,
 	}
 
 	if err := e.connect(); err != nil {
-		slog.Info("RCON not connected", "address", e.address)
+		slog.Warn("initial RCON connection to %s failed: %w", e.address, err)
+	} else {
+		slog.Info("RCON connected", "address", e.address)
 	}
 
-	return e, nil
+	return e
 }
 
 func (e *RconExecutor) executeWithContext(ctx context.Context, command string) (string, error) {
@@ -64,18 +66,14 @@ func (e *RconExecutor) executeWithContext(ctx context.Context, command string) (
 }
 
 // Send executes command over RCON and returns the server's response.
-// On connection failure it reconnects with exponential backoff before retrying.
-func (e *RconExecutor) Send(ctx context.Context, command string) (string, error) {
+func (e *RconExecutor) Send(ctx context.Context, command string, _ ...string) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	var lastErr error
 	for attempt := range rconMaxRetries {
 		if e.conn == nil {
-			if err := e.connect(); err != nil {
-				lastErr = err
-				continue
-			}
+			err := e.connect()
 
 			backoff := rconBaseBackoff * time.Duration(1<<attempt)
 			slog.Warn("RCON reconnecting",
@@ -83,7 +81,11 @@ func (e *RconExecutor) Send(ctx context.Context, command string) (string, error)
 				"attempt", attempt+1,
 				"backoff", backoff,
 			)
-			time.Sleep(backoff)
+			if err != nil {
+				lastErr = fmt.Errorf("reconnect attempt %d: %w", attempt+1, err)
+				time.Sleep(backoff)
+				continue
+			}
 		}
 
 		resp, err := e.executeWithContext(ctx, command)
@@ -96,12 +98,8 @@ func (e *RconExecutor) Send(ctx context.Context, command string) (string, error)
 				"address", e.address,
 				"error", err,
 			)
-			// conn already nilled by executeWithContext on timeout,
-			// or nil it here for other errors
-			if e.conn != nil {
-				_ = e.conn.Close()
-				e.conn = nil
-			}
+			_ = e.conn.Close()
+			e.conn = nil
 			lastErr = err
 			continue
 		}

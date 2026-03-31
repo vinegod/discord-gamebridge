@@ -166,12 +166,14 @@ func buildRegistry(cfg *config.Config) (*executor.Registry, error) {
 			slog.Info("registered tmux executor", "name", name, "session", ex.Session)
 
 		case config.ExecutorTypeRcon:
-			rconEx, err := executor.NewRconExecutor(ex.Host, ex.Port, ex.Password)
-			if err != nil {
-				return nil, fmt.Errorf("executor %q: %w", name, err)
-			}
-			reg.Register(name, rconEx)
+			reg.Register(name, executor.NewRconExecutor(ex.Host, ex.Port, ex.Password))
 			slog.Info("registered rcon executor", "name", name, "address", fmt.Sprintf("%s:%d", ex.Host, ex.Port))
+
+		case config.ExecutorTypeScript:
+			reg.Register(name, &executor.ScriptExecutor{
+				AllowedDir: ex.AllowedScriptDir,
+			})
+			slog.Info("registered script executor", "name", name, "allowed_dir", ex.AllowedScriptDir)
 
 		default:
 			return nil, fmt.Errorf("executor %q: unsupported type %q", name, ex.Type)

@@ -148,9 +148,9 @@ func TestValidate_EmptyConfig_DoesNotPanic(t *testing.T) {
 func TestValidate_DuplicateCommandNames_ReturnsError(t *testing.T) {
 	cfg := &Config{
 		Commands: []CommandConfig{
-			{Name: "kick", Description: "kick player", Type: CommandTypeTmux,
+			{Name: "kick", Description: "kick player", Type: CommandTypeExecutor,
 				ExecutorName: "game_tmux", Template: "kick {{.player}}"},
-			{Name: "kick", Description: "duplicate", Type: CommandTypeTmux,
+			{Name: "kick", Description: "duplicate", Type: CommandTypeExecutor,
 				ExecutorName: "game_tmux", Template: "kick {{.player}}"},
 		},
 	}
@@ -269,7 +269,7 @@ func TestValidateCommand_TmuxMissingExecutor_ReturnsError(t *testing.T) {
 	err := validateCommand(CommandConfig{
 		Name:        "kick",
 		Description: "kick player",
-		Type:        CommandTypeTmux,
+		Type:        CommandTypeExecutor,
 		Template:    "kick {{.player}}",
 		// ExecutorName deliberately missing
 	})
@@ -285,7 +285,7 @@ func TestValidateCommand_RconValid_ReturnsNil(t *testing.T) {
 	err := validateCommand(CommandConfig{
 		Name:         "kick",
 		Description:  "kick player",
-		Type:         CommandTypeRcon,
+		Type:         CommandTypeExecutor,
 		ExecutorName: "game_rcon",
 		Template:     "kick {{.player}}",
 	})
@@ -298,7 +298,7 @@ func TestValidateCommand_RconMissingExecutor_ReturnsError(t *testing.T) {
 	err := validateCommand(CommandConfig{
 		Name:        "kick",
 		Description: "kick player",
-		Type:        CommandTypeRcon,
+		Type:        CommandTypeExecutor,
 		Template:    "kick {{.player}}",
 	})
 	if err == nil {
@@ -310,7 +310,7 @@ func TestValidateCommand_RconMissingTemplate_ReturnsError(t *testing.T) {
 	err := validateCommand(CommandConfig{
 		Name:         "kick",
 		Description:  "kick player",
-		Type:         CommandTypeRcon,
+		Type:         CommandTypeExecutor,
 		ExecutorName: "game_rcon",
 	})
 	if err == nil {
