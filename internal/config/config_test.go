@@ -166,7 +166,7 @@ func TestValidate_DuplicateCommandNames_ReturnsError(t *testing.T) {
 // ── validateExecutor ──────────────────────────────────────────────────────────
 
 func TestValidateExecutor_ValidTmux_ReturnsNil(t *testing.T) {
-	err := validateExecutor("game_tmux", ExecutorConfig{
+	err := validateExecutor("game_tmux", &ExecutorConfig{
 		Type:    ExecutorTypeTmux,
 		Session: "terraria",
 		Window:  1,
@@ -178,7 +178,7 @@ func TestValidateExecutor_ValidTmux_ReturnsNil(t *testing.T) {
 }
 
 func TestValidateExecutor_TmuxMissingSession_ReturnsError(t *testing.T) {
-	err := validateExecutor("game_tmux", ExecutorConfig{
+	err := validateExecutor("game_tmux", &ExecutorConfig{
 		Type: ExecutorTypeTmux,
 		// Session deliberately missing
 	})
@@ -191,7 +191,7 @@ func TestValidateExecutor_TmuxMissingSession_ReturnsError(t *testing.T) {
 }
 
 func TestValidateExecutor_ValidRcon_ReturnsNil(t *testing.T) {
-	err := validateExecutor("game_rcon", ExecutorConfig{
+	err := validateExecutor("game_rcon", &ExecutorConfig{
 		Type:     ExecutorTypeRcon,
 		Host:     "localhost",
 		Port:     7779,
@@ -203,7 +203,7 @@ func TestValidateExecutor_ValidRcon_ReturnsNil(t *testing.T) {
 }
 
 func TestValidateExecutor_RconMissingHost_ReturnsError(t *testing.T) {
-	err := validateExecutor("game_rcon", ExecutorConfig{
+	err := validateExecutor("game_rcon", &ExecutorConfig{
 		Type:     ExecutorTypeRcon,
 		Port:     7779,
 		Password: "secret",
@@ -217,7 +217,7 @@ func TestValidateExecutor_RconMissingHost_ReturnsError(t *testing.T) {
 }
 
 func TestValidateExecutor_RconMissingPort_ReturnsError(t *testing.T) {
-	err := validateExecutor("game_rcon", ExecutorConfig{
+	err := validateExecutor("game_rcon", &ExecutorConfig{
 		Type:     ExecutorTypeRcon,
 		Host:     "localhost",
 		Password: "secret",
@@ -233,7 +233,7 @@ func TestValidateExecutor_RconMissingPort_ReturnsError(t *testing.T) {
 
 func TestValidateExecutor_RconEmptyPassword_ReturnsError(t *testing.T) {
 	// Password is empty — means password_env was not set or the env var was empty.
-	err := validateExecutor("game_rcon", ExecutorConfig{
+	err := validateExecutor("game_rcon", &ExecutorConfig{
 		Type:     ExecutorTypeRcon,
 		Host:     "localhost",
 		Port:     7779,
@@ -248,7 +248,7 @@ func TestValidateExecutor_RconEmptyPassword_ReturnsError(t *testing.T) {
 }
 
 func TestValidateExecutor_UnknownType_ReturnsError(t *testing.T) {
-	err := validateExecutor("mystery", ExecutorConfig{
+	err := validateExecutor("mystery", &ExecutorConfig{
 		Type: ExecutorType("ssh"),
 	})
 	if err == nil {
@@ -257,7 +257,7 @@ func TestValidateExecutor_UnknownType_ReturnsError(t *testing.T) {
 }
 
 func TestValidateExecutor_EmptyType_ReturnsError(t *testing.T) {
-	err := validateExecutor("mystery", ExecutorConfig{})
+	err := validateExecutor("mystery", &ExecutorConfig{})
 	if err == nil {
 		t.Fatal("expected error for empty executor type, got nil")
 	}
@@ -266,7 +266,7 @@ func TestValidateExecutor_EmptyType_ReturnsError(t *testing.T) {
 // ── validateCommand ───────────────────────────────────────────────────────────
 
 func TestValidateCommand_TmuxMissingExecutor_ReturnsError(t *testing.T) {
-	err := validateCommand(CommandConfig{
+	err := validateCommand(&CommandConfig{
 		Name:        "kick",
 		Description: "kick player",
 		Type:        CommandTypeExecutor,
@@ -282,7 +282,7 @@ func TestValidateCommand_TmuxMissingExecutor_ReturnsError(t *testing.T) {
 }
 
 func TestValidateCommand_RconValid_ReturnsNil(t *testing.T) {
-	err := validateCommand(CommandConfig{
+	err := validateCommand(&CommandConfig{
 		Name:         "kick",
 		Description:  "kick player",
 		Type:         CommandTypeExecutor,
@@ -295,7 +295,7 @@ func TestValidateCommand_RconValid_ReturnsNil(t *testing.T) {
 }
 
 func TestValidateCommand_RconMissingExecutor_ReturnsError(t *testing.T) {
-	err := validateCommand(CommandConfig{
+	err := validateCommand(&CommandConfig{
 		Name:        "kick",
 		Description: "kick player",
 		Type:        CommandTypeExecutor,
@@ -307,7 +307,7 @@ func TestValidateCommand_RconMissingExecutor_ReturnsError(t *testing.T) {
 }
 
 func TestValidateCommand_RconMissingTemplate_ReturnsError(t *testing.T) {
-	err := validateCommand(CommandConfig{
+	err := validateCommand(&CommandConfig{
 		Name:         "kick",
 		Description:  "kick player",
 		Type:         CommandTypeExecutor,
