@@ -10,7 +10,7 @@ import (
 
 type stubExecutor struct{}
 
-func (s *stubExecutor) Send(_ context.Context, _ string) (string, error) {
+func (s *stubExecutor) Send(_ context.Context, _ string, _ ...string) (string, error) {
 	return "ok", nil
 }
 
@@ -19,7 +19,7 @@ type stubLifecycleExecutor struct {
 	closeErr    error
 }
 
-func (s *stubLifecycleExecutor) Send(_ context.Context, _ string) (string, error) {
+func (s *stubLifecycleExecutor) Send(_ context.Context, _ string, _ ...string) (string, error) {
 	return "ok", nil
 }
 

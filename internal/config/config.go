@@ -25,18 +25,18 @@ type Config struct {
 
 // BotConfig holds Discord bot credentials and script execution policies.
 type BotConfig struct {
-	TokenEnvVar      string `yaml:"token_env_var"`
-	LogLevel         string `yaml:"log_level"`
-	AllowedScriptDir string `yaml:"allowed_script_dir"`
-	Token            string `yaml:"-"`
+	TokenEnvVar string `yaml:"token_env_var"`
+	LogLevel    string `yaml:"log_level"`
+	Token       string `yaml:"-"`
 }
 
 // ExecutorType identifies which transport an ExecutorConfig describes.
 type ExecutorType string
 
 const (
-	ExecutorTypeTmux ExecutorType = "tmux"
-	ExecutorTypeRcon ExecutorType = "rcon"
+	ExecutorTypeTmux   ExecutorType = "tmux"
+	ExecutorTypeRcon   ExecutorType = "rcon"
+	ExecutorTypeScript ExecutorType = "script"
 )
 
 // ExecutorConfig describes a named executor entry in config.yaml.
@@ -54,11 +54,14 @@ type ExecutorConfig struct {
 	Port        int    `yaml:"port"`
 	PasswordEnv string `yaml:"password_env"` // name of the env var holding the password
 	Password    string `yaml:"-"`            // resolved at load time
+
+	// script fields
+	AllowedScriptDir string `yaml:"allowed_script_dir"`
 }
 
 // ServerConfig defines routing parameters, regex parsers, and Discord targets.
 type ServerConfig struct {
-	// ChatExecutor is the name of the executor used for Discord→Game chat.
+	// ChatExecutor is the name of the executor used for Discord-->Game chat.
 	// Required when chat_template is set.
 	ChatExecutor string `yaml:"chat_executor"`
 
@@ -96,8 +99,7 @@ type RegexParsers struct {
 type CommandType string
 
 const (
-	CommandTypeTmux     CommandType = "tmux"
-	CommandTypeRcon     CommandType = "rcon"
+	CommandTypeExecutor CommandType = "executor"
 	CommandTypeScript   CommandType = "script"
 	CommandTypeInternal CommandType = "internal"
 )
@@ -110,15 +112,21 @@ type CommandConfig struct {
 	Permissions PermissionConfig `yaml:"permissions"`
 	Arguments   []ArgumentConfig `yaml:"arguments"`
 
+	// ExecutorName is the name of the executor to use.
+	// Required for tmux, rcon, and script types.
 	ExecutorName string `yaml:"executor"`
 
 	// Template is the command string sent to the executor.
 	// Supports {{.argname}} placeholders.
+	// Required for tmux and rcon types. Unused for script type.
 	Template string `yaml:"template"`
 
-	// Script-specific fields (type: script only).
-	ScriptPath     string        `yaml:"script_path"`
-	StaticArgs     []string      `yaml:"static_args"`
+	// StaticArgs are prepended to dynamic slash command args for script commands.
+	// Different commands using the same script executor can pass different static args.
+	ScriptPath string   `yaml:"script_path"`
+	StaticArgs []string `yaml:"static_args"`
+
+	// CommandTimeout is the per-execution deadline.
 	CommandTimeout time.Duration `yaml:"script_timeout"`
 }
 
@@ -144,7 +152,8 @@ type ArgumentConfig struct {
 	Required    bool         `yaml:"required"`
 }
 
-// ReferencedExecutorNames returns every executor name referenced by commands and the server chat config.
+// ReferencedExecutorNames returns every executor name referenced by commands
+// and the server chat config. Used by the registry to validate all names exist.
 func (c *Config) ReferencedExecutorNames() []string {
 	seen := make(map[string]struct{})
 	var names []string
@@ -166,6 +175,19 @@ func (c *Config) ReferencedExecutorNames() []string {
 	return names
 }
 
+func resolveType(cmd *CommandConfig) CommandType {
+	switch {
+	case cmd.Type == CommandTypeInternal:
+		return CommandTypeInternal
+	case cmd.ScriptPath != "":
+		return CommandTypeScript
+	default:
+		return CommandTypeExecutor
+	}
+}
+
+// ── Defaults ──────────────────────────────────────────────────────────────────
+
 func (c *Config) applyDefaults() {
 	if c.Bot.LogLevel == "" {
 		c.Bot.LogLevel = "info"
@@ -179,6 +201,8 @@ func (c *Config) applyDefaults() {
 		}
 	}
 }
+
+// ── Error accumulator ─────────────────────────────────────────────────────────
 
 type errAccumulator struct {
 	errs []error
@@ -194,6 +218,8 @@ func (e *errAccumulator) err() error {
 	return errors.Join(e.errs...)
 }
 
+// ── Regex helper ──────────────────────────────────────────────────────────────
+
 func compileRegex(name, pattern string, dest **regexp.Regexp) error {
 	if pattern == "" {
 		return nil
@@ -206,6 +232,7 @@ func compileRegex(name, pattern string, dest **regexp.Regexp) error {
 	return nil
 }
 
+//gocyclo:ignore
 func validateCommand(cmd CommandConfig) error {
 	acc := &errAccumulator{}
 
@@ -228,7 +255,7 @@ func validateCommand(cmd CommandConfig) error {
 	}
 
 	switch cmd.Type {
-	case CommandTypeTmux, CommandTypeRcon:
+	case CommandTypeExecutor:
 		if cmd.ExecutorName == "" {
 			acc.add(fmt.Errorf("command %q: executor is required for %s type", cmd.Name, cmd.Type))
 		}
@@ -236,6 +263,9 @@ func validateCommand(cmd CommandConfig) error {
 			acc.add(fmt.Errorf("command %q: template is required for %s type", cmd.Name, cmd.Type))
 		}
 	case CommandTypeScript:
+		if cmd.ExecutorName == "" {
+			acc.add(fmt.Errorf("command %q: executor is required for script type", cmd.Name))
+		}
 		if cmd.ScriptPath == "" {
 			acc.add(fmt.Errorf("command %q: script_path is required for script type", cmd.Name))
 		}
@@ -301,10 +331,14 @@ func validateExecutor(name string, cfg ExecutorConfig) error {
 		if cfg.Password == "" {
 			acc.add(fmt.Errorf("executor %q: password_env must point to a non-empty env var", name))
 		}
+	case ExecutorTypeScript:
+		if cfg.AllowedScriptDir == "" {
+			acc.add(fmt.Errorf("executor %q: allowed_script_dir is required for script type", name))
+		}
 	case "":
-		acc.add(fmt.Errorf("executor %q: type is required (tmux, rcon)", name))
+		acc.add(fmt.Errorf("executor %q: type is required (tmux, rcon, script)", name))
 	default:
-		acc.add(fmt.Errorf("executor %q: unknown type %q (expected tmux, rcon)", name, cfg.Type))
+		acc.add(fmt.Errorf("executor %q: unknown type %q (expected tmux, rcon, script)", name, cfg.Type))
 	}
 
 	return acc.err()
@@ -313,7 +347,6 @@ func validateExecutor(name string, cfg ExecutorConfig) error {
 func Load(configPath string) (*Config, error) {
 	_ = godotenv.Load()
 
-	// TODO: Read from repo dir for now, add this option to CLI
 	data, err := os.ReadFile(configPath) // #nosec G304
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -348,6 +381,10 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
+	for idx := range cfg.Commands {
+		cfg.Commands[idx].Type = resolveType(&cfg.Commands[idx])
+	}
+
 	// Compile regex patterns
 	acc.add(compileRegex("chat", cfg.Server.RegexParsers.Chat, &cfg.Server.CompiledChat))
 	acc.add(compileRegex("join", cfg.Server.RegexParsers.Join, &cfg.Server.CompiledJoin))
@@ -377,15 +414,15 @@ func (c *Config) Validate() error {
 		if c.Server.ChatExecutor == "" {
 			return fmt.Errorf("chat_template is set but chat_executor is missing")
 		}
-		slog.Info("Discord→Game chat enabled", "executor", c.Server.ChatExecutor)
+		slog.Info("Discord --> Game chat enabled", "executor", c.Server.ChatExecutor)
 	} else {
-		slog.Warn("Discord→Game chat disabled — chat_template not set")
+		slog.Warn("Discord --> Game chat disabled — chat_template not set")
 	}
 
 	if c.Server.DiscordChatChannelID != "" {
-		slog.Info("Game→Discord forwarding enabled", "channel", c.Server.DiscordChatChannelID)
+		slog.Info("Game --> Discord forwarding enabled", "channel", c.Server.DiscordChatChannelID)
 	} else {
-		slog.Warn("Game→Discord forwarding disabled — discord_chat_channel_id not set")
+		slog.Warn("Game --> Discord forwarding disabled — discord_chat_channel_id not set")
 	}
 
 	if c.Server.DiscordWebhookURL == "" && c.Server.DiscordChatChannelID != "" {

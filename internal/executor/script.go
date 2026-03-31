@@ -11,6 +11,19 @@ import (
 	"strings"
 )
 
+// ScriptExecutor runs a fixed local shell script.
+// StaticArgs are per-command and passed in via Send — see CommandConfig.StaticArgs.
+// Implements Executor.
+type ScriptExecutor struct {
+	AllowedDir string
+}
+
+// Send runs the script, passing any args received directly to RunScript.
+// The command string is unused — scripts run a fixed path, not a dynamic command.
+func (e *ScriptExecutor) Send(ctx context.Context, command string, args ...string) (string, error) {
+	return RunScript(ctx, command, e.AllowedDir, args)
+}
+
 // RunScript safely verifies and executes a local shell script within the allowed directory bounds.
 func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string) (string, error) {
 	// Resolve allowed directory: Abs first, then symlinks
