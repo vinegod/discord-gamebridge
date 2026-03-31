@@ -1,4 +1,4 @@
-name: goreleaser
+name: Release
 
 on:
   push:
@@ -21,9 +21,9 @@ jobs:
           go-version: stable
 
       - name: Run linter
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.11
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
