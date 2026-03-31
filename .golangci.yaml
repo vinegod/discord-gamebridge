@@ -100,13 +100,6 @@ formatters:
     - golines
 
   settings:
-    gofumpt:
-      simplify: true
-      rewrite-rules:
-        - pattern: 'interface{}'
-          replacement: 'any'
-        - pattern: 'a[b:len(a)]'
-          replacement: 'a[b:]'
     golines:
       max-len: 120
       tab-len: 4
@@ -115,7 +108,7 @@ formatters:
       chain-split-dots: true
 
     goimports:
-      local-prefixes: github.com/vinegod/discordgamebridge
+      local-prefixes: [github.com/vinegod/discordgamebridge]
 
 issues:
   max-issues-per-linter: 0
