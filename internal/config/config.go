@@ -298,7 +298,9 @@ func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
 	case arg.Description == "":
 		acc.add(fmt.Errorf("command %q argument %q: description is required", cmdName, arg.Name))
 	case len(arg.Description) > 100:
-		acc.add(fmt.Errorf("command %q argument %q: description exceeds 100 character Discord limit", cmdName, arg.Name))
+		acc.add(
+			fmt.Errorf("command %q argument %q: description exceeds 100 character Discord limit", cmdName, arg.Name),
+		)
 	}
 
 	switch arg.Type {
@@ -307,7 +309,14 @@ func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
 	case "":
 		acc.add(fmt.Errorf("command %q argument %q: type is required (string, boolean)", cmdName, arg.Name))
 	default:
-		acc.add(fmt.Errorf("command %q argument %q: unknown type %q (expected string, boolean)", cmdName, arg.Name, arg.Type))
+		acc.add(
+			fmt.Errorf(
+				"command %q argument %q: unknown type %q (expected string, boolean)",
+				cmdName,
+				arg.Name,
+				arg.Type,
+			),
+		)
 	}
 
 	return acc.err()

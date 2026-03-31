@@ -37,8 +37,10 @@ func terrariaConfig() *config.ServerConfig {
 		CompiledJoin:    mustCompile(`^(?P<player>[^\s]+) has joined\.$`),
 		CompiledLeave:   mustCompile(`^(?P<player>[^\s]+) has left\.$`),
 		CompiledConsole: mustCompile(`^(Terraria Server v|Listening on port|World saved).*`),
-		CompiledEvents:  mustCompile(`.*(has awoken!|have been defeated!|is approaching!|is rising\.\.\.|falling from the sky!)$`),
-		CompiledIgnore:  mustCompile(`^<Server> .*$`),
+		CompiledEvents: mustCompile(
+			`.*(has awoken!|have been defeated!|is approaching!|is rising\.\.\.|falling from the sky!)$`,
+		),
+		CompiledIgnore: mustCompile(`^<Server> .*$`),
 	}
 }
 
@@ -164,7 +166,10 @@ func TestProcessLogLine_IgnorePatternTakesPriorityOverChat(t *testing.T) {
 	processLogLine("<Server> this matches chat but should be ignored", terrariaConfig(), sender)
 
 	if sender.count() != 0 {
-		t.Errorf("ignore pattern should suppress matching even when chat regex also matches, got %d messages", sender.count())
+		t.Errorf(
+			"ignore pattern should suppress matching even when chat regex also matches, got %d messages",
+			sender.count(),
+		)
 	}
 }
 

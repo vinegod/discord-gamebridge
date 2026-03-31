@@ -4,6 +4,8 @@ run:
   timeout: 5m
   issues-exit-code: 1
   tests: true
+  allow-parallel-runners: true
+  allow-serial-runners: true
 
 linters:
   enable:
@@ -91,7 +93,7 @@ linters:
       scope: declarations
       capital: false
 
-formatterts:
+formatters:
   enable:
     - gci
     - gofumpt
@@ -99,6 +101,7 @@ formatterts:
 
   settings:
     gofumpt:
+      simplify: true
       rewrite-rules:
         - pattern: 'interface{}'
           replacement: 'any'
@@ -107,7 +110,7 @@ formatterts:
     golines:
       max-len: 120
       tab-len: 4
-      shorten-comments: true
+      shorten-comments: false
       reformat-tags: true
       chain-split-dots: true
 

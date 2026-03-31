@@ -27,7 +27,12 @@ type BotWrapper struct {
 	reloadCh   chan struct{}
 }
 
-func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}, reg *executor.Registry) (*BotWrapper, error) { //nolint:gocritic //reason:copy value to new bot once
+func NewBot(
+	ctx context.Context,
+	cfg config.Config, //nolint:gocritic //reason:copy value to new bot once
+	reloadCh chan struct{},
+	reg *executor.Registry,
+) (*BotWrapper, error) {
 	b := &BotWrapper{
 		cfg:       cfg,
 		executors: reg,
@@ -89,7 +94,10 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 	}
 }
 
-func (b *BotWrapper) hasPermission(event *events.ApplicationCommandInteractionCreate, perms config.PermissionConfig) bool {
+func (b *BotWrapper) hasPermission(
+	event *events.ApplicationCommandInteractionCreate,
+	perms config.PermissionConfig,
+) bool {
 	if len(perms.AllowedRoles) == 0 && len(perms.AllowedUsers) == 0 {
 		return true
 	}
@@ -122,7 +130,11 @@ func checkPermission(userID string, memberRoleIDs []string, perms config.Permiss
 }
 
 // handleExecutorCommand is the single dispatch point for tmux, rcon, and script types.
-func (b *BotWrapper) handleExecutorCommand(ctx context.Context, event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
+func (b *BotWrapper) handleExecutorCommand(
+	ctx context.Context,
+	event *events.ApplicationCommandInteractionCreate,
+	cmdCfg *config.CommandConfig,
+) {
 	ex, err := b.executors.Get(cmdCfg.ExecutorName)
 	if err != nil {
 		replyEphemeral(event, fmt.Sprintf("Configuration error: %v", err))
@@ -144,7 +156,11 @@ func (b *BotWrapper) handleExecutorCommand(ctx context.Context, event *events.Ap
 	}
 }
 
-func buildExecutorInput(cmdCfg *config.CommandConfig, data *discord.SlashCommandInteractionData, event *events.ApplicationCommandInteractionCreate) (command string, args []string, deferred bool) {
+func buildExecutorInput(
+	cmdCfg *config.CommandConfig,
+	data *discord.SlashCommandInteractionData,
+	event *events.ApplicationCommandInteractionCreate,
+) (command string, args []string, deferred bool) {
 	if cmdCfg.Type == config.CommandTypeScript {
 		args = append([]string{}, cmdCfg.StaticArgs...)
 		for _, arg := range cmdCfg.Arguments {
@@ -252,7 +268,10 @@ func (b *BotWrapper) SyncCommands() error {
 	return nil
 }
 
-func (b *BotWrapper) handleInternalCommand(event *events.ApplicationCommandInteractionCreate, cmdCfg *config.CommandConfig) {
+func (b *BotWrapper) handleInternalCommand(
+	event *events.ApplicationCommandInteractionCreate,
+	cmdCfg *config.CommandConfig,
+) {
 	switch cmdCfg.Name {
 	case "reload":
 		b.executeReload(event)

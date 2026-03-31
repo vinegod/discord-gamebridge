@@ -334,7 +334,8 @@ func parseRetryAfter(err error) time.Duration {
 
 	var restErr *rest.Error
 
-	if errors.As(err, &restErr) && restErr.Response != nil && restErr.Response.StatusCode == http.StatusTooManyRequests {
+	if errors.As(err, &restErr) && restErr.Response != nil &&
+		restErr.Response.StatusCode == http.StatusTooManyRequests {
 		retryAfterStr := restErr.Response.Header.Get("Retry-After")
 		if retryAfterStr != "" {
 			if retrySeconds, parseErr := strconv.ParseFloat(retryAfterStr, 64); parseErr == nil {
