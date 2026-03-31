@@ -2,10 +2,9 @@ package bot
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"unicode"
-
-	"log/slog"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"

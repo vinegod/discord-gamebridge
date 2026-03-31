@@ -148,10 +148,14 @@ func TestValidate_EmptyConfig_DoesNotPanic(t *testing.T) {
 func TestValidate_DuplicateCommandNames_ReturnsError(t *testing.T) {
 	cfg := &Config{
 		Commands: []CommandConfig{
-			{Name: "kick", Description: "kick player", Type: CommandTypeExecutor,
-				ExecutorName: "game_tmux", Template: "kick {{.player}}"},
-			{Name: "kick", Description: "duplicate", Type: CommandTypeExecutor,
-				ExecutorName: "game_tmux", Template: "kick {{.player}}"},
+			{
+				Name: "kick", Description: "kick player", Type: CommandTypeExecutor,
+				ExecutorName: "game_tmux", Template: "kick {{.player}}",
+			},
+			{
+				Name: "kick", Description: "duplicate", Type: CommandTypeExecutor,
+				ExecutorName: "game_tmux", Template: "kick {{.player}}",
+			},
 		},
 	}
 	err := cfg.Validate()
@@ -458,7 +462,8 @@ func TestLoad_RconPasswordLoadedFromEnv(t *testing.T) {
 	t.Setenv("TEST_BOT_TOKEN", "x")
 	t.Setenv("MY_RCON_PASS", "secret123")
 
-	yaml := strings.Replace(validConfigYAML,
+	yaml := strings.Replace(
+		validConfigYAML,
 		"  game_tmux:\n    type: \"tmux\"\n    session: \"terraria\"\n    window: 1\n    pane: 0",
 		"  game_tmux:\n    type: \"tmux\"\n    session: \"terraria\"\n    window: 1\n    pane: 0\n  game_rcon:\n    type: \"rcon\"\n    host: \"localhost\"\n    port: 7779\n    password_env: \"MY_RCON_PASS\"",
 		1,
@@ -481,7 +486,8 @@ func TestLoad_RconEmptyPasswordEnv_LoadsEmpty(t *testing.T) {
 	t.Setenv("TEST_BOT_TOKEN", "x")
 	// MY_RCON_PASS deliberately not set
 
-	yaml := strings.Replace(validConfigYAML,
+	yaml := strings.Replace(
+		validConfigYAML,
 		"  game_tmux:\n    type: \"tmux\"\n    session: \"terraria\"\n    window: 1\n    pane: 0",
 		"  game_tmux:\n    type: \"tmux\"\n    session: \"terraria\"\n    window: 1\n    pane: 0\n  game_rcon:\n    type: \"rcon\"\n    host: \"localhost\"\n    port: 7779\n    password_env: \"MY_RCON_PASS\"",
 		1,
