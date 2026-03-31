@@ -27,7 +27,7 @@ type BotWrapper struct {
 	reloadCh   chan struct{}
 }
 
-func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}, reg *executor.Registry) (*BotWrapper, error) {
+func NewBot(ctx context.Context, cfg config.Config, reloadCh chan struct{}, reg *executor.Registry) (*BotWrapper, error) { //nolint:gocritic //reason:copy value to new bot once
 	b := &BotWrapper{
 		cfg:       cfg,
 		executors: reg,
@@ -130,7 +130,7 @@ func (b *BotWrapper) handleExecutorCommand(ctx context.Context, event *events.Ap
 	}
 
 	data := event.SlashCommandInteractionData()
-	command, args, deferred := buildExecutorInput(cmdCfg, data, event)
+	command, args, deferred := buildExecutorInput(cmdCfg, &data, event)
 
 	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
 	defer cancel()
@@ -144,7 +144,7 @@ func (b *BotWrapper) handleExecutorCommand(ctx context.Context, event *events.Ap
 	}
 }
 
-func buildExecutorInput(cmdCfg *config.CommandConfig, data discord.SlashCommandInteractionData, event *events.ApplicationCommandInteractionCreate) (command string, args []string, deferred bool) {
+func buildExecutorInput(cmdCfg *config.CommandConfig, data *discord.SlashCommandInteractionData, event *events.ApplicationCommandInteractionCreate) (command string, args []string, deferred bool) {
 	if cmdCfg.Type == config.CommandTypeScript {
 		args = append([]string{}, cmdCfg.StaticArgs...)
 		for _, arg := range cmdCfg.Arguments {
@@ -175,7 +175,7 @@ func replyDeferred(client *bot.Client, event *events.ApplicationCommandInteracti
 }
 
 // replyImmediate responds to a tmux or rcon command.
-func replyImmediate(event *events.ApplicationCommandInteractionCreate, cmdName string, output string, err error) {
+func replyImmediate(event *events.ApplicationCommandInteractionCreate, cmdName, output string, err error) {
 	if err != nil {
 		replyEphemeral(event, fmt.Sprintf("Failed to execute command: %v", err))
 		return
@@ -290,7 +290,7 @@ func (b *BotWrapper) executePing(event *events.ApplicationCommandInteractionCrea
 }
 
 // buildCommand extracts argument values from the interaction.
-func buildCommand(tmpl string, args []config.ArgumentConfig, data discord.SlashCommandInteractionData) string {
+func buildCommand(tmpl string, args []config.ArgumentConfig, data *discord.SlashCommandInteractionData) string {
 	values := make(map[string]string, len(args))
 	for _, arg := range args {
 		if val, ok := data.OptString(arg.Name); ok {

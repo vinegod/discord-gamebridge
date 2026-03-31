@@ -169,8 +169,8 @@ func (c *Config) ReferencedExecutorNames() []string {
 	}
 
 	add(c.Server.ChatExecutor)
-	for _, cmd := range c.Commands {
-		add(cmd.ExecutorName)
+	for idx := range c.Commands {
+		add(c.Commands[idx].ExecutorName)
 	}
 	return names
 }
@@ -233,7 +233,7 @@ func compileRegex(name, pattern string, dest **regexp.Regexp) error {
 }
 
 //gocyclo:ignore
-func validateCommand(cmd CommandConfig) error {
+func validateCommand(cmd *CommandConfig) error {
 	acc := &errAccumulator{}
 
 	switch {
@@ -313,7 +313,7 @@ func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
 	return acc.err()
 }
 
-func validateExecutor(name string, cfg ExecutorConfig) error {
+func validateExecutor(name string, cfg *ExecutorConfig) error {
 	acc := &errAccumulator{}
 
 	switch cfg.Type {
@@ -433,19 +433,19 @@ func (c *Config) Validate() error {
 
 	// Validate executors
 	for name, ex := range c.Executors {
-		acc.add(validateExecutor(name, ex))
+		acc.add(validateExecutor(name, &ex))
 	}
 
 	// Validate commands
 	if len(c.Commands) > 0 {
 		slog.Info("validating commands", "count", len(c.Commands))
 		names := make(map[string]struct{}, len(c.Commands))
-		for _, cmd := range c.Commands {
-			if _, duplicate := names[cmd.Name]; duplicate {
-				acc.add(fmt.Errorf("duplicate command name %q", cmd.Name))
+		for idx := range c.Commands {
+			if _, duplicate := names[c.Commands[idx].Name]; duplicate {
+				acc.add(fmt.Errorf("duplicate command name %q", c.Commands[idx].Name))
 			}
-			names[cmd.Name] = struct{}{}
-			acc.add(validateCommand(cmd))
+			names[c.Commands[idx].Name] = struct{}{}
+			acc.add(validateCommand(&c.Commands[idx]))
 		}
 	} else {
 		slog.Info("commands disabled — none configured")

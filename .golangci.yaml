@@ -5,60 +5,7 @@ run:
   issues-exit-code: 1
   tests: true
 
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-
-  gocognit:
-    min-complexity: 20
-
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-
-  gosec:
-    severity: medium
-    confidence: medium
-
-  goimports:
-    local-prefixes: github.com/vinegod/discordgamebridge
-
-  nolintlint:
-    require-explanation: true
-    require-specific: true
-
-  revive:
-    rules:
-      - name: exported
-        disabled: true
-      - name: package-comments
-        disabled: true
-
-  wrapcheck:
-    ignoreSigs:
-      - .Errorf(
-      - errors.New(
-      - errors.Join(
-      - errors.Unwrap(
-
-  errorlint:
-    errorf: true
-    asserts: true
-    comparison: true
-
-  godot:
-    scope: declarations
-    capital: false
-
-  contextcheck:
-    disable-exported-types-check: false
-
 linters:
-  disable-all: true
   enable:
     # Default / Standard
     - errcheck
@@ -97,12 +44,68 @@ linters:
     # Performance
     - prealloc
     - gocognit
+  settings:
+    gocyclo:
+      min-complexity: 15
+
+    gocognit:
+      min-complexity: 20
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+
+    gosec:
+      severity: medium
+      confidence: medium
+
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Join(
+        - errors.Unwrap(
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+    godot:
+      scope: declarations
+      capital: false
 
 formatterts:
   enable:
+    - gci
     - gofumpt
 
+  settings:
+    gofumpt:
+      rewrite-rules:
+        - pattern: 'interface{}'
+          replacement: 'any'
+        - pattern: 'a[b:len(a)]'
+          replacement: 'a[b:]'
+    goimports:
+      local-prefixes: github.com/vinegod/discordgamebridge
+
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0

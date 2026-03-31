@@ -207,7 +207,7 @@ func TestRegistry_CloseAll_LifecycleConnectionNilAfterClose(t *testing.T) {
 
 func containsAny(s string, substrings ...string) bool {
 	for _, sub := range substrings {
-		if len(sub) > 0 {
+		if sub != "" {
 			idx := 0
 			for idx <= len(s)-len(sub) {
 				if s[idx:idx+len(sub)] == sub {
