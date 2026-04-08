@@ -106,8 +106,8 @@ func TestCheckPermission_NoMember_UserAllowed_Grants(t *testing.T) {
 
 // ── substituteTemplate ────────────────────────────────────────────────────────
 
-func TestSubstituteTemplate_AllPlaceholdersFilled(t *testing.T) {
-	result := substituteTemplate(
+func SubstituteTemplate_AllPlaceholdersFilled(t *testing.T) {
+	result := config.SubstituteTemplate(
 		"kick {{.player}} {{.reason}}",
 		map[string]string{"player": "Alice", "reason": "griefing"},
 	)
@@ -116,31 +116,31 @@ func TestSubstituteTemplate_AllPlaceholdersFilled(t *testing.T) {
 	}
 }
 
-func TestSubstituteTemplate_SinglePlaceholder(t *testing.T) {
-	result := substituteTemplate("kick {{.player}}", map[string]string{"player": "Bob"})
+func SubstituteTemplate_SinglePlaceholder(t *testing.T) {
+	result := config.SubstituteTemplate("kick {{.player}}", map[string]string{"player": "Bob"})
 	if result != "kick Bob" {
 		t.Errorf("expected 'kick Bob', got %q", result)
 	}
 }
 
-func TestSubstituteTemplate_NoPlaceholders(t *testing.T) {
-	result := substituteTemplate("save", map[string]string{})
+func SubstituteTemplate_NoPlaceholders(t *testing.T) {
+	result := config.SubstituteTemplate("save", map[string]string{})
 	if result != "save" {
 		t.Errorf("expected 'save', got %q", result)
 	}
 }
 
-func TestSubstituteTemplate_NilValues_RemovesAllPlaceholders(t *testing.T) {
-	result := substituteTemplate("kick {{.player}}", nil)
+func SubstituteTemplate_NilValues_RemovesAllPlaceholders(t *testing.T) {
+	result := config.SubstituteTemplate("kick {{.player}}", nil)
 	if result != "kick" {
 		t.Errorf("expected empty string with nil values, got %q", result)
 	}
 }
 
-func TestSubstituteTemplate_OptionalMissing_RemovedCleanly(t *testing.T) {
+func SubstituteTemplate_OptionalMissing_RemovedCleanly(t *testing.T) {
 	// reason is optional and not provided — placeholder must be removed,
 	// leaving no double space or trailing garbage.
-	result := substituteTemplate(
+	result := config.SubstituteTemplate(
 		"kick {{.player}} {{.reason}}",
 		map[string]string{"player": "Alice"}, // reason omitted
 	)
@@ -149,40 +149,40 @@ func TestSubstituteTemplate_OptionalMissing_RemovedCleanly(t *testing.T) {
 	}
 }
 
-func TestSubstituteTemplate_AllPlaceholdersMissing_ReturnsEmpty(t *testing.T) {
-	result := substituteTemplate("{{.player}}", map[string]string{})
+func SubstituteTemplate_AllPlaceholdersMissing_ReturnsEmpty(t *testing.T) {
+	result := config.SubstituteTemplate("{{.player}}", map[string]string{})
 	if result != "" {
 		t.Errorf("expected empty string when all placeholders missing, got %q", result)
 	}
 }
 
-func TestSubstituteTemplate_EmptyTemplate_ReturnsEmpty(t *testing.T) {
-	result := substituteTemplate("", map[string]string{"player": "Alice"})
+func SubstituteTemplate_EmptyTemplate_ReturnsEmpty(t *testing.T) {
+	result := config.SubstituteTemplate("", map[string]string{"player": "Alice"})
 	if result != "" {
 		t.Errorf("expected empty string for empty template, got %q", result)
 	}
 }
 
-func TestSubstituteTemplate_ExtraValuesIgnored(t *testing.T) {
+func SubstituteTemplate_ExtraValuesIgnored(t *testing.T) {
 	// Values that don't correspond to any placeholder are silently ignored.
-	result := substituteTemplate("save", map[string]string{"unused": "value"})
+	result := config.SubstituteTemplate("save", map[string]string{"unused": "value"})
 	if result != "save" {
 		t.Errorf("expected 'save' with extra values ignored, got %q", result)
 	}
 }
 
-func TestSubstituteTemplate_ValueWithSpecialChars_PassedThrough(t *testing.T) {
+func SubstituteTemplate_ValueWithSpecialChars_PassedThrough(t *testing.T) {
 	// Player names can contain spaces, punctuation, etc.
 	// The function must not sanitize values — that's the caller's job.
-	result := substituteTemplate("kick {{.player}}", map[string]string{"player": "Player One"})
+	result := config.SubstituteTemplate("kick {{.player}}", map[string]string{"player": "Player One"})
 	if result != "kick Player One" {
 		t.Errorf("expected 'kick Player One', got %q", result)
 	}
 }
 
-func TestSubstituteTemplate_TrimmedResult(t *testing.T) {
+func SubstituteTemplate_TrimmedResult(t *testing.T) {
 	// When the only content is a removed placeholder, TrimSpace must clean up.
-	result := substituteTemplate("  {{.player}}  ", map[string]string{})
+	result := config.SubstituteTemplate("  {{.player}}  ", map[string]string{})
 	if result != "" {
 		t.Errorf("expected empty trimmed result, got %q", result)
 	}

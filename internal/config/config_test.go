@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -640,5 +641,63 @@ func TestParsedChatChannelID_ErrorContainsFieldName(t *testing.T) {
 	_, err := s.ParsedChatChannelID()
 	if !strings.Contains(err.Error(), "discord_chat_channel_id") {
 		t.Errorf("error should mention the field name, got: %v", err)
+	}
+}
+
+// ── config.ExtractGroups ─────────────────────────────────────────────────────────────
+
+func mustCompile(pattern string) *regexp.Regexp {
+	return regexp.MustCompile(pattern)
+}
+
+func TestExtractGroups_NoMatch_ReturnsNil(t *testing.T) {
+	re := mustCompile(`^<(?P<player>[^>]+)>`)
+	if got := ExtractGroups(re, "no angle brackets here"); got != nil {
+		t.Errorf("expected nil for non-matching input, got %v", got)
+	}
+}
+
+func TestExtractGroups_Match_ReturnsNamedGroups(t *testing.T) {
+	re := mustCompile(`^<(?P<player>[^>]+)> (?P<message>.*)$`)
+	got := ExtractGroups(re, "<Alice> hello world")
+
+	if got == nil {
+		t.Fatal("expected non-nil result for matching input")
+	}
+	if got["player"] != "Alice" {
+		t.Errorf("player: expected 'Alice', got %q", got["player"])
+	}
+	if got["message"] != "hello world" {
+		t.Errorf("message: expected 'hello world', got %q", got["message"])
+	}
+}
+
+func TestExtractGroups_UnnamedGroups_NotIncluded(t *testing.T) {
+	// Unnamed capture groups should be ignored — only named ones matter.
+	re := mustCompile(`^([^:]+): (?P<message>.*)$`)
+	got := ExtractGroups(re, "prefix: content here")
+
+	if got == nil {
+		t.Fatal("expected non-nil for matching input")
+	}
+	if _, ok := got[""]; ok {
+		t.Error("unnamed group with empty key should not appear in result")
+	}
+	if got["message"] != "content here" {
+		t.Errorf("named group 'message': expected 'content here', got %q", got["message"])
+	}
+}
+
+func TestExtractGroups_EmptyNamedGroup_IncludedAsEmptyString(t *testing.T) {
+	// An optional named group that doesn't participate in the match should
+	// still be present as an empty string, not missing from the map.
+	re := mustCompile(`^(?P<player>[^>]*)?$`)
+	got := ExtractGroups(re, "")
+
+	if got == nil {
+		t.Fatal("expected non-nil for matching input")
+	}
+	if _, ok := got["player"]; !ok {
+		t.Error("named group should be present in result even if it matched empty string")
 	}
 }
