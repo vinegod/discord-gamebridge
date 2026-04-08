@@ -152,6 +152,24 @@ type ArgumentConfig struct {
 	Required    bool         `yaml:"required"`
 }
 
+type OutputConfig struct {
+	Pattern string `yaml:"pattern"` // regex with named capture groups
+	Format  string `yaml:"format"`  // template using {{.groupname}}
+
+	compiled *regexp.Regexp
+}
+
+func (o *OutputConfig) Apply(raw string) string {
+	if o == nil || o.compiled == nil {
+		return raw
+	}
+	groups := ExtractGroups(o.compiled, raw)
+	if groups == nil {
+		return raw // pattern didn't match — better to show raw than nothing
+	}
+	return SubstituteTemplate(o.Format, groups)
+}
+
 // ReferencedExecutorNames returns every executor name referenced by commands
 // and the server chat config. Used by the registry to validate all names exist.
 func (c *Config) ReferencedExecutorNames() []string {
@@ -469,4 +487,39 @@ func (s *ServerConfig) ParsedChatChannelID() (snowflake.ID, error) {
 		return 0, fmt.Errorf("invalid discord_chat_channel_id %q: %w", s.DiscordChatChannelID, err)
 	}
 	return id, nil
+}
+
+// extractGroups maps a regex's named capture groups to a string map.
+func ExtractGroups(re *regexp.Regexp, text string) map[string]string {
+	match := re.FindStringSubmatch(text)
+	if match == nil {
+		return nil
+	}
+	results := make(map[string]string, len(re.SubexpNames()))
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			results[name] = match[i]
+		}
+	}
+	return results
+}
+
+func SubstituteTemplate(tmpl string, values map[string]string) string {
+	result := tmpl
+	for k, v := range values {
+		result = strings.ReplaceAll(result, "{{."+k+"}}", v)
+	}
+	// Remove any remaining unfilled placeholders (optional args not provided).
+	for {
+		start := strings.Index(result, "{{.")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result[start:], "}}")
+		if end == -1 {
+			break
+		}
+		result = result[:start] + result[start+end+2:]
+	}
+	return strings.TrimSpace(result)
 }

@@ -316,27 +316,5 @@ func buildCommand(tmpl string, args []config.ArgumentConfig, data *discord.Slash
 			values[arg.Name] = val
 		}
 	}
-	return substituteTemplate(tmpl, values)
-}
-
-// substituteTemplate replaces {{.key}} placeholders in tmpl with values
-// from the provided map, removing placeholders with no corresponding value.
-func substituteTemplate(tmpl string, values map[string]string) string {
-	result := tmpl
-	for k, v := range values {
-		result = strings.ReplaceAll(result, "{{."+k+"}}", v)
-	}
-	// Remove any remaining unfilled placeholders (optional args not provided).
-	for {
-		start := strings.Index(result, "{{.")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(result[start:], "}}")
-		if end == -1 {
-			break
-		}
-		result = result[:start] + result[start+end+2:]
-	}
-	return strings.TrimSpace(result)
+	return config.SubstituteTemplate(tmpl, values)
 }

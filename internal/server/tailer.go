@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/nxadm/tail"
@@ -69,7 +68,7 @@ func processLogLine(line string, cfg *config.ServerConfig, sender discord.Messag
 
 	// 1. In-game chat: <PlayerName> message
 	if cfg.CompiledChat != nil {
-		if groups := extractGroups(cfg.CompiledChat, cleanLine); groups != nil {
+		if groups := config.ExtractGroups(cfg.CompiledChat, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			message := strings.TrimSpace(groups["message"])
 
@@ -83,7 +82,7 @@ func processLogLine(line string, cfg *config.ServerConfig, sender discord.Messag
 
 	// 2. Player join
 	if cfg.CompiledJoin != nil {
-		if groups := extractGroups(cfg.CompiledJoin, cleanLine); groups != nil {
+		if groups := config.ExtractGroups(cfg.CompiledJoin, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			sender.Send(discord.Message{
 				Content:  fmt.Sprintf("🟢 **%s** joined the server.", player),
@@ -95,7 +94,7 @@ func processLogLine(line string, cfg *config.ServerConfig, sender discord.Messag
 
 	// 3. Player leave
 	if cfg.CompiledLeave != nil {
-		if groups := extractGroups(cfg.CompiledLeave, cleanLine); groups != nil {
+		if groups := config.ExtractGroups(cfg.CompiledLeave, cleanLine); groups != nil {
 			player := strings.TrimSpace(groups["player"])
 			sender.Send(discord.Message{
 				Content:  fmt.Sprintf("🔴 **%s** left the server.", player),
@@ -122,19 +121,4 @@ func processLogLine(line string, cfg *config.ServerConfig, sender discord.Messag
 		})
 		return
 	}
-}
-
-// extractGroups maps a regex's named capture groups to a string map.
-func extractGroups(re *regexp.Regexp, text string) map[string]string {
-	match := re.FindStringSubmatch(text)
-	if match == nil {
-		return nil
-	}
-	results := make(map[string]string, len(re.SubexpNames()))
-	for i, name := range re.SubexpNames() {
-		if i != 0 && name != "" {
-			results[name] = match[i]
-		}
-	}
-	return results
 }
