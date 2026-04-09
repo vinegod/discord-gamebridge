@@ -103,6 +103,10 @@ commands:
     script_timeout: 75s
     permissions: *admin_perms
     static_args: *server_args
+    # Example of output config
+    output:
+      pattern: 'Restart sequence (?P<complete>\S+)'
+      format: "Server restart {{.complete}}"
 
   - name: "reload"
     description: "Hot-reloads the bot configuration"
