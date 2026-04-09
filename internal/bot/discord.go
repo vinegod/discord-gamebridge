@@ -148,6 +148,7 @@ func (b *BotWrapper) handleExecutorCommand(
 	defer cancel()
 
 	output, err := ex.Send(ctx, command, args...)
+	output = cmdCfg.Output.Apply(output)
 
 	if deferred {
 		replyDeferred(b.Client, event, output, err)
