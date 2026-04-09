@@ -300,6 +300,15 @@ func validateCommand(cmd *CommandConfig) error {
 		acc.add(validateArgument(cmd.Name, i, arg))
 	}
 
+	if cmd.Output != nil {
+		if cmd.Output.Pattern == "" {
+			acc.add(fmt.Errorf("command %q: output config exists, but pattern is empty", cmd.Name))
+		}
+		if cmd.Output.Format == "" {
+			acc.add(fmt.Errorf("command %q: output config exists, but format is empty", cmd.Name))
+		}
+	}
+
 	return acc.err()
 }
 
