@@ -128,6 +128,7 @@ type CommandConfig struct {
 
 	// CommandTimeout is the per-execution deadline.
 	CommandTimeout time.Duration `yaml:"script_timeout"`
+	Output         *OutputConfig `yaml:"output"`
 }
 
 // PermissionConfig defines access control lists for a command.
@@ -410,6 +411,13 @@ func Load(configPath string) (*Config, error) {
 
 	for idx := range cfg.Commands {
 		cfg.Commands[idx].Type = resolveType(&cfg.Commands[idx])
+		if cfg.Commands[idx].Output == nil {
+			continue
+		}
+
+		acc.add(
+			compileRegex(cfg.Commands[idx].Name, cfg.Commands[idx].Output.Pattern, &cfg.Commands[idx].Output.compiled),
+		)
 	}
 
 	// Compile regex patterns
