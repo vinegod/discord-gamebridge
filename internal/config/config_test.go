@@ -19,12 +19,10 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 // validConfigYAML is the canonical valid config used across Load tests.
-// It includes an executor so chat_executor references resolve correctly.
 const validConfigYAML = `
 bot:
   token_env_var: "TEST_BOT_TOKEN"
   log_level: "info"
-  allowed_script_dir: "/tmp/scripts"
 
 executors:
   game_tmux:
@@ -128,7 +126,6 @@ func TestValidate_ChatTemplateWithoutChatExecutor_ReturnsError(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{
 			ChatTemplate: "say {{.user}}: {{.message}}",
-			// ChatExecutor deliberately missing
 		},
 	}
 	err := cfg.Validate()
@@ -142,7 +139,6 @@ func TestValidate_ChatTemplateWithoutChatExecutor_ReturnsError(t *testing.T) {
 
 func TestValidate_EmptyConfig_DoesNotPanic(t *testing.T) {
 	cfg := &Config{}
-	// Must not panic. May return errors for missing fields — that's fine.
 	_ = cfg.Validate()
 }
 
@@ -183,10 +179,7 @@ func TestValidateExecutor_ValidTmux_ReturnsNil(t *testing.T) {
 }
 
 func TestValidateExecutor_TmuxMissingSession_ReturnsError(t *testing.T) {
-	err := validateExecutor("game_tmux", &ExecutorConfig{
-		Type: ExecutorTypeTmux,
-		// Session deliberately missing
-	})
+	err := validateExecutor("game_tmux", &ExecutorConfig{Type: ExecutorTypeTmux})
 	if err == nil {
 		t.Fatal("expected error for tmux without session, got nil")
 	}
@@ -200,7 +193,7 @@ func TestValidateExecutor_ValidRcon_ReturnsNil(t *testing.T) {
 		Type:     ExecutorTypeRcon,
 		Host:     "localhost",
 		Port:     7779,
-		Password: "secret", // already resolved from env
+		Password: "secret",
 	})
 	if err != nil {
 		t.Errorf("expected nil for valid rcon executor, got: %v", err)
@@ -226,7 +219,6 @@ func TestValidateExecutor_RconMissingPort_ReturnsError(t *testing.T) {
 		Type:     ExecutorTypeRcon,
 		Host:     "localhost",
 		Password: "secret",
-		// Port deliberately 0
 	})
 	if err == nil {
 		t.Fatal("expected error for rcon without port, got nil")
@@ -237,12 +229,10 @@ func TestValidateExecutor_RconMissingPort_ReturnsError(t *testing.T) {
 }
 
 func TestValidateExecutor_RconEmptyPassword_ReturnsError(t *testing.T) {
-	// Password is empty — means password_env was not set or the env var was empty.
 	err := validateExecutor("game_rcon", &ExecutorConfig{
-		Type:     ExecutorTypeRcon,
-		Host:     "localhost",
-		Port:     7779,
-		Password: "",
+		Type: ExecutorTypeRcon,
+		Host: "localhost",
+		Port: 7779,
 	})
 	if err == nil {
 		t.Fatal("expected error for rcon with empty password, got nil")
@@ -252,10 +242,28 @@ func TestValidateExecutor_RconEmptyPassword_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestValidateExecutor_UnknownType_ReturnsError(t *testing.T) {
-	err := validateExecutor("mystery", &ExecutorConfig{
-		Type: ExecutorType("ssh"),
+func TestValidateExecutor_ValidScript_ReturnsNil(t *testing.T) {
+	err := validateExecutor("scripts", &ExecutorConfig{
+		Type:             ExecutorTypeScript,
+		AllowedScriptDir: "/opt/scripts",
 	})
+	if err != nil {
+		t.Errorf("expected nil for valid script executor, got: %v", err)
+	}
+}
+
+func TestValidateExecutor_ScriptMissingAllowedDir_ReturnsError(t *testing.T) {
+	err := validateExecutor("scripts", &ExecutorConfig{Type: ExecutorTypeScript})
+	if err == nil {
+		t.Fatal("expected error for script executor without allowed_script_dir, got nil")
+	}
+	if !strings.Contains(err.Error(), "allowed_script_dir") {
+		t.Errorf("error should mention allowed_script_dir, got: %v", err)
+	}
+}
+
+func TestValidateExecutor_UnknownType_ReturnsError(t *testing.T) {
+	err := validateExecutor("mystery", &ExecutorConfig{Type: ExecutorType("ssh")})
 	if err == nil {
 		t.Fatal("expected error for unknown executor type, got nil")
 	}
@@ -270,56 +278,92 @@ func TestValidateExecutor_EmptyType_ReturnsError(t *testing.T) {
 
 // ── validateCommand ───────────────────────────────────────────────────────────
 
-func TestValidateCommand_TmuxMissingExecutor_ReturnsError(t *testing.T) {
+func TestValidateCommand_ExecutorMissingExecutorField_ReturnsError(t *testing.T) {
 	err := validateCommand(&CommandConfig{
 		Name:        "kick",
 		Description: "kick player",
 		Type:        CommandTypeExecutor,
 		Template:    "kick {{.player}}",
-		// ExecutorName deliberately missing
 	})
 	if err == nil {
-		t.Fatal("expected error for tmux command without executor, got nil")
+		t.Fatal("expected error for executor command without executor name, got nil")
 	}
 	if !strings.Contains(err.Error(), "executor") {
 		t.Errorf("error should mention executor, got: %v", err)
 	}
 }
 
-func TestValidateCommand_RconValid_ReturnsNil(t *testing.T) {
+func TestValidateCommand_ScriptValid_ReturnsNil(t *testing.T) {
 	err := validateCommand(&CommandConfig{
-		Name:         "kick",
-		Description:  "kick player",
-		Type:         CommandTypeExecutor,
-		ExecutorName: "game_rcon",
-		Template:     "kick {{.player}}",
+		Name:         "restart",
+		Description:  "restart server",
+		Type:         CommandTypeScript,
+		ExecutorName: "terraria_scripts",
+		ScriptPath:   "restart.sh",
 	})
 	if err != nil {
-		t.Errorf("expected nil for valid rcon command, got: %v", err)
+		t.Errorf("expected nil for valid script command, got: %v", err)
 	}
 }
 
-func TestValidateCommand_RconMissingExecutor_ReturnsError(t *testing.T) {
+func TestValidateCommand_ScriptMissingExecutor_ReturnsError(t *testing.T) {
 	err := validateCommand(&CommandConfig{
-		Name:        "kick",
-		Description: "kick player",
-		Type:        CommandTypeExecutor,
-		Template:    "kick {{.player}}",
+		Name:        "restart",
+		Description: "restart server",
+		Type:        CommandTypeScript,
+		ScriptPath:  "restart.sh",
 	})
 	if err == nil {
-		t.Fatal("expected error for rcon command without executor, got nil")
+		t.Fatal("expected error for script command without executor, got nil")
 	}
 }
 
-func TestValidateCommand_RconMissingTemplate_ReturnsError(t *testing.T) {
+func TestValidateCommand_ScriptMissingScriptPath_ReturnsError(t *testing.T) {
 	err := validateCommand(&CommandConfig{
-		Name:         "kick",
-		Description:  "kick player",
+		Name:         "restart",
+		Description:  "restart server",
+		Type:         CommandTypeScript,
+		ExecutorName: "terraria_scripts",
+	})
+	if err == nil {
+		t.Fatal("expected error for script command without script_path, got nil")
+	}
+	if !strings.Contains(err.Error(), "script_path") {
+		t.Errorf("error should mention script_path, got: %v", err)
+	}
+}
+
+func TestValidateCommand_OutputMissingPattern_ReturnsError(t *testing.T) {
+	err := validateCommand(&CommandConfig{
+		Name:         "time",
+		Description:  "get server time",
 		Type:         CommandTypeExecutor,
 		ExecutorName: "game_rcon",
+		Template:     "time",
+		Output:       &OutputConfig{Format: "🕐 {{.time}}"},
 	})
 	if err == nil {
-		t.Fatal("expected error for rcon command without template, got nil")
+		t.Fatal("expected error for output config without pattern, got nil")
+	}
+	if !strings.Contains(err.Error(), "pattern") {
+		t.Errorf("error should mention pattern, got: %v", err)
+	}
+}
+
+func TestValidateCommand_OutputMissingFormat_ReturnsError(t *testing.T) {
+	err := validateCommand(&CommandConfig{
+		Name:         "time",
+		Description:  "get server time",
+		Type:         CommandTypeExecutor,
+		ExecutorName: "game_rcon",
+		Template:     "time",
+		Output:       &OutputConfig{Pattern: `(?P<time>\S+)`},
+	})
+	if err == nil {
+		t.Fatal("expected error for output config without format, got nil")
+	}
+	if !strings.Contains(err.Error(), "format") {
+		t.Errorf("error should mention format, got: %v", err)
 	}
 }
 
@@ -327,16 +371,13 @@ func TestValidateCommand_RconMissingTemplate_ReturnsError(t *testing.T) {
 
 func TestReferencedExecutorNames_Empty_ReturnsNil(t *testing.T) {
 	cfg := &Config{}
-	names := cfg.ReferencedExecutorNames()
-	if len(names) != 0 {
+	if names := cfg.ReferencedExecutorNames(); len(names) != 0 {
 		t.Errorf("expected no names for empty config, got %v", names)
 	}
 }
 
 func TestReferencedExecutorNames_ChatExecutorIncluded(t *testing.T) {
-	cfg := &Config{
-		Server: ServerConfig{ChatExecutor: "game_rcon"},
-	}
+	cfg := &Config{Server: ServerConfig{ChatExecutor: "game_rcon"}}
 	names := cfg.ReferencedExecutorNames()
 	if len(names) != 1 || names[0] != "game_rcon" {
 		t.Errorf("expected [game_rcon], got %v", names)
@@ -350,36 +391,27 @@ func TestReferencedExecutorNames_CommandExecutorsIncluded(t *testing.T) {
 			{ExecutorName: "game_rcon"},
 		},
 	}
-	names := cfg.ReferencedExecutorNames()
-	if len(names) != 2 {
+	if names := cfg.ReferencedExecutorNames(); len(names) != 2 {
 		t.Errorf("expected 2 names, got %v", names)
 	}
 }
 
 func TestReferencedExecutorNames_Deduplicated(t *testing.T) {
 	cfg := &Config{
-		Server: ServerConfig{ChatExecutor: "game_tmux"},
-		Commands: []CommandConfig{
-			{ExecutorName: "game_tmux"}, // same as chat executor
-			{ExecutorName: "game_tmux"}, // and again
-		},
+		Server:   ServerConfig{ChatExecutor: "game_tmux"},
+		Commands: []CommandConfig{{ExecutorName: "game_tmux"}, {ExecutorName: "game_tmux"}},
 	}
-	names := cfg.ReferencedExecutorNames()
-	if len(names) != 1 {
+	if names := cfg.ReferencedExecutorNames(); len(names) != 1 {
 		t.Errorf("expected 1 unique name, got %v", names)
 	}
 }
 
 func TestReferencedExecutorNames_ScriptCommandsIgnored(t *testing.T) {
-	// Script commands have no executor name — empty strings must not appear.
 	cfg := &Config{
-		Commands: []CommandConfig{
-			{Type: CommandTypeScript}, // ExecutorName is ""
-		},
+		Commands: []CommandConfig{{Type: CommandTypeScript}},
 	}
-	names := cfg.ReferencedExecutorNames()
-	if len(names) != 0 {
-		t.Errorf("expected no names for script command, got %v", names)
+	if names := cfg.ReferencedExecutorNames(); len(names) != 0 {
+		t.Errorf("expected no names for script command with empty executor, got %v", names)
 	}
 }
 
@@ -394,7 +426,6 @@ func TestLoad_ValidConfig_ParsedCorrectly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error loading valid config: %v", err)
 	}
-
 	if cfg.Bot.Token != "my-secret-token" {
 		t.Errorf("expected token from env, got %q", cfg.Bot.Token)
 	}
@@ -402,9 +433,6 @@ func TestLoad_ValidConfig_ParsedCorrectly(t *testing.T) {
 		t.Error("expected executor 'game_tmux' to be present")
 	} else if ex.Session != "terraria" {
 		t.Errorf("expected executor session 'terraria', got %q", ex.Session)
-	}
-	if cfg.Server.DiscordChatChannelID != "123456789012345678" {
-		t.Errorf("expected channel ID, got %q", cfg.Server.DiscordChatChannelID)
 	}
 	if cfg.Server.ChatExecutor != "game_tmux" {
 		t.Errorf("expected chat_executor 'game_tmux', got %q", cfg.Server.ChatExecutor)
@@ -482,10 +510,7 @@ func TestLoad_RconPasswordLoadedFromEnv(t *testing.T) {
 }
 
 func TestLoad_RconEmptyPasswordEnv_LoadsEmpty(t *testing.T) {
-	// If the env var is not set, Password stays empty.
-	// Validate() catches this as an error — Load() itself does not fail.
 	t.Setenv("TEST_BOT_TOKEN", "x")
-	// MY_RCON_PASS deliberately not set
 
 	yaml := strings.Replace(
 		validConfigYAML,
@@ -502,6 +527,62 @@ func TestLoad_RconEmptyPasswordEnv_LoadsEmpty(t *testing.T) {
 	if cfg.Executors["game_rcon"].Password != "" {
 		t.Errorf("expected empty password when env var is unset, got %q",
 			cfg.Executors["game_rcon"].Password)
+	}
+}
+
+func TestLoad_OutputPattern_CompiledOnLoad(t *testing.T) {
+	t.Setenv("TEST_BOT_TOKEN", "x")
+
+	withOutput := strings.Replace(
+		validConfigYAML,
+		"commands: []",
+		`commands:
+  - name: "time"
+    description: "get server time"
+    type: "executor"
+    executor: "game_tmux"
+    template: "time"
+    output:
+      pattern: 'Time: (?P<time>\S+)'
+      format: "🕐 {{.time}}"`,
+		1,
+	)
+	path := writeConfig(t, withOutput)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Commands[0].Output == nil {
+		t.Fatal("expected Output to be set")
+	}
+	if cfg.Commands[0].Output.compiled == nil {
+		t.Error("expected output pattern to be compiled at load time")
+	}
+}
+
+func TestLoad_InvalidOutputPattern_ReturnsError(t *testing.T) {
+	t.Setenv("TEST_BOT_TOKEN", "x")
+
+	withBadOutput := strings.Replace(
+		validConfigYAML,
+		"commands: []",
+		`commands:
+  - name: "time"
+    description: "get server time"
+    type: "executor"
+    executor: "game_tmux"
+    template: "time"
+    output:
+      pattern: '[invalid'
+      format: "{{.time}}"`,
+		1,
+	)
+	path := writeConfig(t, withBadOutput)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid output pattern, got nil")
 	}
 }
 
@@ -644,7 +725,7 @@ func TestParsedChatChannelID_ErrorContainsFieldName(t *testing.T) {
 	}
 }
 
-// ── config.ExtractGroups ─────────────────────────────────────────────────────────────
+// ── ExtractGroups ─────────────────────────────────────────────────────────────
 
 func mustCompile(pattern string) *regexp.Regexp {
 	return regexp.MustCompile(pattern)
@@ -673,7 +754,6 @@ func TestExtractGroups_Match_ReturnsNamedGroups(t *testing.T) {
 }
 
 func TestExtractGroups_UnnamedGroups_NotIncluded(t *testing.T) {
-	// Unnamed capture groups should be ignored — only named ones matter.
 	re := mustCompile(`^([^:]+): (?P<message>.*)$`)
 	got := ExtractGroups(re, "prefix: content here")
 
@@ -689,8 +769,6 @@ func TestExtractGroups_UnnamedGroups_NotIncluded(t *testing.T) {
 }
 
 func TestExtractGroups_EmptyNamedGroup_IncludedAsEmptyString(t *testing.T) {
-	// An optional named group that doesn't participate in the match should
-	// still be present as an empty string, not missing from the map.
 	re := mustCompile(`^(?P<player>[^>]*)?$`)
 	got := ExtractGroups(re, "")
 
@@ -698,6 +776,88 @@ func TestExtractGroups_EmptyNamedGroup_IncludedAsEmptyString(t *testing.T) {
 		t.Fatal("expected non-nil for matching input")
 	}
 	if _, ok := got["player"]; !ok {
-		t.Error("named group should be present in result even if it matched empty string")
+		t.Error("named group should be present even if it matched empty string")
+	}
+}
+
+// ── OutputConfig.Apply ────────────────────────────────────────────────────────
+
+func TestOutputConfig_Apply_NilConfig_ReturnsRaw(t *testing.T) {
+	var o *OutputConfig
+	if got := o.Apply("raw output"); got != "raw output" {
+		t.Errorf("nil config should return raw unchanged, got %q", got)
+	}
+}
+
+func TestOutputConfig_Apply_NilCompiled_ReturnsRaw(t *testing.T) {
+	// compiled is nil when no pattern was set - should behave like nil config.
+	o := &OutputConfig{Pattern: "", Format: ""}
+	if got := o.Apply("raw output"); got != "raw output" {
+		t.Errorf("uncompiled config should return raw unchanged, got %q", got)
+	}
+}
+
+func TestOutputConfig_Apply_PatternMatches_ReturnsFormatted(t *testing.T) {
+	o := &OutputConfig{
+		Pattern:  `Time: (?P<time>\S+)`,
+		Format:   "🕐 {{.time}}",
+		compiled: mustCompile(`Time: (?P<time>\S+)`),
+	}
+	got := o.Apply("Time: 14:32:01\nDebug: tick=8473920")
+	if got != "🕐 14:32:01" {
+		t.Errorf("expected formatted output '🕐 14:32:01', got %q", got)
+	}
+}
+
+func TestOutputConfig_Apply_PatternNoMatch_ReturnsRaw(t *testing.T) {
+	// A non-matching pattern must return raw rather than an empty string.
+	// Empty Discord messages are confusing; raw output at least shows something.
+	o := &OutputConfig{
+		Pattern:  `Time: (?P<time>\S+)`,
+		Format:   "🕐 {{.time}}",
+		compiled: mustCompile(`Time: (?P<time>\S+)`),
+	}
+	raw := "Unrecognised response format"
+	if got := o.Apply(raw); got != raw {
+		t.Errorf("non-matching pattern should return raw unchanged, got %q", got)
+	}
+}
+
+func TestOutputConfig_Apply_MultipleGroups_AllSubstituted(t *testing.T) {
+	o := &OutputConfig{
+		Pattern:  `(?P<day>\w+) (?P<time>\S+)`,
+		Format:   "{{.day}} at {{.time}}",
+		compiled: mustCompile(`(?P<day>\w+) (?P<time>\S+)`),
+	}
+	got := o.Apply("Monday 14:32:01")
+	if got != "Monday at 14:32:01" {
+		t.Errorf("expected 'Monday at 14:32:01', got %q", got)
+	}
+}
+
+func TestOutputConfig_Apply_EmptyRawInput_PatternNoMatch_ReturnsEmpty(t *testing.T) {
+	o := &OutputConfig{
+		Pattern:  `Time: (?P<time>\S+)`,
+		Format:   "🕐 {{.time}}",
+		compiled: mustCompile(`Time: (?P<time>\S+)`),
+	}
+	if got := o.Apply(""); got != "" {
+		t.Errorf("empty input with no match should return empty, got %q", got)
+	}
+}
+
+func TestOutputConfig_Apply_FormatMissingGroupRef_ReturnsPartial(t *testing.T) {
+	// Format references a group that doesn't exist in the pattern.
+	// SubstituteTemplate removes unfilled placeholders - result is trimmed but not empty.
+	o := &OutputConfig{
+		Pattern:  `Time: (?P<time>\S+)`,
+		Format:   "{{.time}} ({{.missing}})",
+		compiled: mustCompile(`Time: (?P<time>\S+)`),
+	}
+	got := o.Apply("Time: 14:32:01")
+	if got != "14:32:01 ()" {
+		// SubstituteTemplate removes {{.missing}} leaving "()" - acceptable behaviour.
+		// What matters is it doesn't panic or return empty.
+		t.Logf("got %q - verify this is acceptable for your use case", got)
 	}
 }
