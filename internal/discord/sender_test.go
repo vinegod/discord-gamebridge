@@ -596,6 +596,32 @@ func TestFormatGroup_CodeBlockOverhead_SplitsWhenContentPlusFencesExceedLimit(t 
 	}
 }
 
+// ── groupByUsername: Target boundary ─────────────────────────────────────────
+
+func TestGroupByUsername_DifferentTargets_SameUsername_SplitsGroups(t *testing.T) {
+	// Same username but different Target must produce separate groups so
+	// messages are not batched across Discord channels.
+	msgs := []Message{
+		{Content: "World saved.", Username: SystemUsername, Target: "log"},
+		{Content: "Server online.", Username: SystemUsername, Target: "chat"},
+	}
+	groups := groupByUsername(msgs)
+	if len(groups) != 2 {
+		t.Errorf("different Target should split into 2 groups, got %d", len(groups))
+	}
+}
+
+func TestGroupByUsername_SameTarget_SameUsername_Merges(t *testing.T) {
+	msgs := []Message{
+		{Content: "World saved.", Username: SystemUsername, Target: "log"},
+		{Content: "Server online.", Username: SystemUsername, Target: "log"},
+	}
+	groups := groupByUsername(msgs)
+	if len(groups) != 1 {
+		t.Errorf("same Target + same Username should merge into 1 group, got %d", len(groups))
+	}
+}
+
 // ── groupByUsername: SystemUsername boundary ──────────────────────────────────
 
 func TestGroupByUsername_SystemUsername_ConsecutiveMerge(t *testing.T) {
@@ -624,6 +650,54 @@ func TestGroupByUsername_SystemUsername_BetweenPlayerMessages_Splits(t *testing.
 	}
 	if groups[1][0].Username != SystemUsername {
 		t.Errorf("middle group should be SystemUsername, got %q", groups[1][0].Username)
+	}
+}
+
+// ── targetFor ────────────────────────────────────────────────────────────────
+
+func newTestSender(channels map[string]ChannelTarget, defaultTarget string) *Sender {
+	return NewSender(&SenderConfig{
+		Channels:      channels,
+		DefaultTarget: defaultTarget,
+	})
+}
+
+func TestTargetFor_KnownTarget_ReturnsThatChannel(t *testing.T) {
+	want := ChannelTarget{ChannelID: 42}
+	s := newTestSender(map[string]ChannelTarget{"chat": want}, "chat")
+
+	got := s.targetFor("chat")
+	if got.ChannelID != want.ChannelID {
+		t.Errorf("expected channel ID %d, got %d", want.ChannelID, got.ChannelID)
+	}
+}
+
+func TestTargetFor_UnknownTarget_FallsBackToDefault(t *testing.T) {
+	want := ChannelTarget{ChannelID: 99}
+	s := newTestSender(map[string]ChannelTarget{"chat": want}, "chat")
+
+	got := s.targetFor("nonexistent")
+	if got.ChannelID != want.ChannelID {
+		t.Errorf("expected fallback to default channel ID %d, got %d", want.ChannelID, got.ChannelID)
+	}
+}
+
+func TestTargetFor_EmptyTarget_FallsBackToDefault(t *testing.T) {
+	want := ChannelTarget{ChannelID: 7}
+	s := newTestSender(map[string]ChannelTarget{"chat": want}, "chat")
+
+	got := s.targetFor("")
+	if got.ChannelID != want.ChannelID {
+		t.Errorf("expected fallback for empty target, got channel ID %d", got.ChannelID)
+	}
+}
+
+func TestTargetFor_NoChannels_ReturnsZeroValue(t *testing.T) {
+	s := newTestSender(map[string]ChannelTarget{}, "log")
+
+	got := s.targetFor("anything")
+	if got.ChannelID != 0 {
+		t.Errorf("expected zero-value channel ID for empty channels map, got %d", got.ChannelID)
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 )
 
 // StartTailer begins tailing the server's log file and routes parsed
-// lines to the appropriate Discord channel via the provided Sender.
+// lines to the appropriate Discord channel via the provided sender.
 func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender discord.MessageSender) error {
 	t, err := tail.TailFile(serverCfg.LogFilePath, tail.Config{
 		Follow:   true,
@@ -55,69 +55,40 @@ func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender dis
 	return nil
 }
 
-// processLogLine matches a single log line against compiled regexes and routes it to the sender.
+// processLogLine evaluates the log rules in order and forwards the first
+// matching line to the sender. Rules with ignore:true drop the line silently.
+// All template variables ({{.line}}, {{.groupname}}) are expanded before
+// sending. The rule's channel is stamped onto Message.Target so the sender
+// can route to the correct Discord channel.
 func processLogLine(line string, cfg *config.ServerConfig, sender discord.MessageSender) {
 	cleanLine := strings.TrimSpace(line)
 	if cleanLine == "" {
 		return
 	}
 
-	if cfg.CompiledIgnore != nil && cfg.CompiledIgnore.MatchString(cleanLine) {
-		return
-	}
-
-	// 1. In-game chat: <PlayerName> message
-	if cfg.CompiledChat != nil {
-		if groups := config.ExtractGroups(cfg.CompiledChat, cleanLine); groups != nil {
-			player := strings.TrimSpace(groups["player"])
-			message := strings.TrimSpace(groups["message"])
-
-			sender.Send(discord.Message{
-				Content:  message,
-				Username: player,
-			})
+	for i := range cfg.LogRules {
+		rule := &cfg.LogRules[i]
+		if rule.Compiled == nil || !rule.Compiled.MatchString(cleanLine) {
+			continue
+		}
+		if rule.Ignore {
 			return
 		}
-	}
 
-	// 2. Player join
-	if cfg.CompiledJoin != nil {
-		if groups := config.ExtractGroups(cfg.CompiledJoin, cleanLine); groups != nil {
-			player := strings.TrimSpace(groups["player"])
-			sender.Send(discord.Message{
-				Content:  fmt.Sprintf("🟢 **%s** joined the server.", player),
-				Username: "Server",
-			})
+		groups := config.ExtractGroups(rule.Compiled, cleanLine)
+		if groups == nil {
+			groups = make(map[string]string)
+		}
+		groups["line"] = cleanLine
+
+		if sender == nil {
 			return
 		}
-	}
 
-	// 3. Player leave
-	if cfg.CompiledLeave != nil {
-		if groups := config.ExtractGroups(cfg.CompiledLeave, cleanLine); groups != nil {
-			player := strings.TrimSpace(groups["player"])
-			sender.Send(discord.Message{
-				Content:  fmt.Sprintf("🔴 **%s** left the server.", player),
-				Username: "Server",
-			})
-			return
-		}
-	}
-
-	// 4. Game Events
-	if cfg.CompiledEvents != nil && cfg.CompiledEvents.MatchString(cleanLine) {
 		sender.Send(discord.Message{
-			Content:  cleanLine,
-			Username: discord.SystemUsername,
-		})
-		return
-	}
-
-	// 5. Other console logs
-	if cfg.CompiledConsole != nil && cfg.CompiledConsole.MatchString(cleanLine) {
-		sender.Send(discord.Message{
-			Content:  cleanLine,
-			Username: discord.SystemUsername,
+			Content:  config.SubstituteTemplate(rule.Message, groups),
+			Username: config.SubstituteTemplate(rule.Username, groups),
+			Target:   string(rule.Channel),
 		})
 		return
 	}

@@ -28,19 +28,61 @@ func mustCompile(pattern string) *regexp.Regexp {
 	return regexp.MustCompile(pattern)
 }
 
-// terrariaConfig returns a ServerConfig with the real Terraria regex patterns
-// used in config_example.yaml. Tests that use different regexes build their
-// own config rather than modifying this one.
+// rule is a shorthand for building a non-ignore LogRuleConfig with a compiled regex.
+func rule(name, regex, username, message string, channel config.LogChannel) config.LogRuleConfig {
+	return config.LogRuleConfig{
+		Name:     name,
+		Regex:    regex,
+		Username: username,
+		Message:  message,
+		Channel:  channel,
+		Compiled: mustCompile(regex),
+	}
+}
+
+// ignoreRule is a shorthand for building an ignore LogRuleConfig.
+func ignoreRule(name, regex string) config.LogRuleConfig {
+	return config.LogRuleConfig{
+		Name:     name,
+		Regex:    regex,
+		Ignore:   true,
+		Compiled: mustCompile(regex),
+	}
+}
+
+// terrariaConfig returns a ServerConfig with the real Terraria log rules
+// used in config_example.yaml, in the same order. Tests that need different
+// rules build their own config rather than modifying this one.
 func terrariaConfig() *config.ServerConfig {
 	return &config.ServerConfig{
-		CompiledChat:    mustCompile(`^<(?P<player>[^>]+)> (?P<message>.*)$`),
-		CompiledJoin:    mustCompile(`^(?P<player>[^\s]+) has joined\.$`),
-		CompiledLeave:   mustCompile(`^(?P<player>[^\s]+) has left\.$`),
-		CompiledConsole: mustCompile(`^(Terraria Server v|Listening on port|World saved).*`),
-		CompiledEvents: mustCompile(
-			`.*(has awoken!|have been defeated!|is approaching!|is rising\.\.\.|falling from the sky!)$`,
-		),
-		CompiledIgnore: mustCompile(`^<Server> .*$`),
+		LogRules: []config.LogRuleConfig{
+			ignoreRule("ignore_server", `^<Server> .*$`),
+			rule("chat",
+				`^<(?P<player>[^>]+)> (?P<message>.*)$`,
+				"{{.player}}", "{{.message}}",
+				config.LogChannelChat,
+			),
+			rule("join",
+				`^(?P<player>[^\s]+) has joined\.$`,
+				"Server", "🟢 **{{.player}}** joined the server.",
+				config.LogChannelChat,
+			),
+			rule("leave",
+				`^(?P<player>[^\s]+) has left\.$`,
+				"Server", "🔴 **{{.player}}** left the server.",
+				config.LogChannelChat,
+			),
+			rule("events",
+				`.*(has awoken!|have been defeated!|is approaching!|is rising\.\.\.|falling from the sky!)$`,
+				discord.SystemUsername, "{{.line}}",
+				config.LogChannelChat,
+			),
+			rule("console",
+				`^(Terraria Server v|Listening on port|World saved).*`,
+				discord.SystemUsername, "{{.line}}",
+				config.LogChannelLog,
+			),
+		},
 	}
 }
 
@@ -129,6 +171,30 @@ func TestProcessLogLine_Console_SendsWithSystemUsername(t *testing.T) {
 	}
 }
 
+func TestProcessLogLine_Console_StampsLogTarget(t *testing.T) {
+	sender := &captureSender{}
+	processLogLine("World saved.", terrariaConfig(), sender)
+
+	if sender.count() != 1 {
+		t.Fatalf("expected 1 message, got %d", sender.count())
+	}
+	if sender.first().Target != string(config.LogChannelLog) {
+		t.Errorf("console message target: expected %q, got %q", config.LogChannelLog, sender.first().Target)
+	}
+}
+
+func TestProcessLogLine_Chat_StampsChatTarget(t *testing.T) {
+	sender := &captureSender{}
+	processLogLine("<Alice> hello", terrariaConfig(), sender)
+
+	if sender.count() != 1 {
+		t.Fatalf("expected 1 message, got %d", sender.count())
+	}
+	if sender.first().Target != string(config.LogChannelChat) {
+		t.Errorf("chat message target: expected %q, got %q", config.LogChannelChat, sender.first().Target)
+	}
+}
+
 func TestProcessLogLine_Events_SendsWithSystemUsername(t *testing.T) {
 	sender := &captureSender{}
 	processLogLine("Eater of Worlds has awoken!", terrariaConfig(), sender)
@@ -148,9 +214,9 @@ func TestProcessLogLine_Events_SendsWithSystemUsername(t *testing.T) {
 // ── processLogLine: ignore filter ────────────────────────────────────────────
 
 func TestProcessLogLine_IgnoredLine_NothingForwarded(t *testing.T) {
-	// "<Server> ..." matches the ignore regex — the bot sends messages to the
+	// "<Server> ..." matches the ignore rule — the bot sends messages to the
 	// game as "say [Discord] User: msg", which Terraria echoes as <Server>.
-	// Without the ignore filter, this would create an echo loop.
+	// Without the ignore rule, this would create an echo loop.
 	sender := &captureSender{}
 	processLogLine("<Server> [Discord] Alice: hello", terrariaConfig(), sender)
 
@@ -159,15 +225,15 @@ func TestProcessLogLine_IgnoredLine_NothingForwarded(t *testing.T) {
 	}
 }
 
-func TestProcessLogLine_IgnorePatternTakesPriorityOverChat(t *testing.T) {
+func TestProcessLogLine_IgnoreRuleTakesPriorityOverChat(t *testing.T) {
 	// Even though "<Server> ..." would match the chat regex,
-	// the ignore check must run first and suppress it.
+	// the ignore rule comes first in the list and must suppress it.
 	sender := &captureSender{}
 	processLogLine("<Server> this matches chat but should be ignored", terrariaConfig(), sender)
 
 	if sender.count() != 0 {
 		t.Errorf(
-			"ignore pattern should suppress matching even when chat regex also matches, got %d messages",
+			"ignore rule should suppress line even when a later rule also matches, got %d messages",
 			sender.count(),
 		)
 	}
@@ -176,8 +242,7 @@ func TestProcessLogLine_IgnorePatternTakesPriorityOverChat(t *testing.T) {
 // ── processLogLine: unmatched lines ──────────────────────────────────────────
 
 func TestProcessLogLine_UnmatchedLine_NothingForwarded(t *testing.T) {
-	// A line that matches no regex should be silently dropped.
-	// This is intentional — unmatched noise from the server shouldn't reach Discord.
+	// A line that matches no rule should be silently dropped.
 	sender := &captureSender{}
 	processLogLine("some internal server noise 12345", terrariaConfig(), sender)
 
@@ -204,44 +269,58 @@ func TestProcessLogLine_WhitespaceOnlyLine_NothingForwarded(t *testing.T) {
 	}
 }
 
-// ── processLogLine: nil regex fields ─────────────────────────────────────────
+// ── processLogLine: nil Compiled field ───────────────────────────────────────
 
-func TestProcessLogLine_NilChatRegex_DoesNotPanic(t *testing.T) {
+func TestProcessLogLine_NilCompiledRule_IsSkipped(t *testing.T) {
+	// A rule whose Compiled field is nil (e.g. empty regex) must be skipped
+	// without panicking. This guards against partially-initialised configs.
 	cfg := &config.ServerConfig{
-		CompiledChat: nil,
-		// All others nil too — nothing should match, nothing should panic.
+		LogRules: []config.LogRuleConfig{
+			{Name: "broken", Compiled: nil},
+		},
 	}
 	sender := &captureSender{}
-	// Must not panic.
 	processLogLine("<Alice> hello", cfg, sender)
+	// No panic is the primary assertion; zero messages is the expected outcome.
+	if sender.count() != 0 {
+		t.Errorf("nil-compiled rule should not forward any message, got %d", sender.count())
+	}
 }
 
-func TestProcessLogLine_NilIgnoreRegex_StillProcessesOtherRegexes(t *testing.T) {
+func TestProcessLogLine_NilCompiledRule_SubsequentRulesStillFire(t *testing.T) {
+	// A nil-compiled rule must be skipped so later rules can still match.
 	cfg := &config.ServerConfig{
-		CompiledIgnore: nil, // explicitly no ignore filter
-		CompiledJoin:   mustCompile(`^(?P<player>[^\s]+) has joined\.$`),
+		LogRules: []config.LogRuleConfig{
+			{Name: "broken", Compiled: nil},
+			rule("join",
+				`^(?P<player>[^\s]+) has joined\.$`,
+				"Server", "🟢 **{{.player}}** joined the server.",
+				config.LogChannelChat,
+			),
+		},
 	}
 	sender := &captureSender{}
 	processLogLine("Alice has joined.", cfg, sender)
 
 	if sender.count() != 1 {
-		t.Errorf("nil ignore regex should not prevent other regexes from matching, got %d messages", sender.count())
+		t.Errorf("rule after nil-compiled rule should still match, got %d messages", sender.count())
 	}
 }
 
 // ── processLogLine: priority order ───────────────────────────────────────────
 
-func TestProcessLogLine_ChatMatchesFirst_JoinDoesNotAlsoFire(t *testing.T) {
-	// If somehow a line matched both chat and join (unlikely with real Terraria
-	// patterns, but possible with custom regexes), only one message should be sent.
+func TestProcessLogLine_FirstMatchWins_OnlyOneMessageSent(t *testing.T) {
+	// If two rules could both match the same line, only the first fires.
 	cfg := &config.ServerConfig{
-		CompiledChat: mustCompile(`^(?P<player>.+) (?P<message>.+)$`), // overly broad
-		CompiledJoin: mustCompile(`^(?P<player>[^\s]+) has joined\.$`),
+		LogRules: []config.LogRuleConfig{
+			rule("broad", `^(?P<player>.+) (?P<message>.+)$`, "{{.player}}", "{{.message}}", config.LogChannelChat),
+			rule("join", `^(?P<player>[^\s]+) has joined\.$`, "Server", "joined", config.LogChannelChat),
+		},
 	}
 	sender := &captureSender{}
 	processLogLine("Alice has joined.", cfg, sender)
 
 	if sender.count() != 1 {
-		t.Errorf("only one message should be sent even if multiple regexes could match, got %d", sender.count())
+		t.Errorf("only one message should be sent even if multiple rules could match, got %d", sender.count())
 	}
 }
