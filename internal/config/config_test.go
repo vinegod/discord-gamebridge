@@ -823,6 +823,38 @@ func TestValidateArgument_BoolType_Valid(t *testing.T) {
 	}
 }
 
+// ── validateCommand: cooldown ─────────────────────────────────────────────────
+
+func TestValidateCommand_NoCooldown_Valid(t *testing.T) {
+	cmd := &CommandConfig{
+		Name: "ping", Description: "Ping the server",
+		Type: CommandTypeInternal,
+	}
+	if err := validateCommand(cmd); err != nil {
+		t.Errorf("expected no error for zero cooldown, got: %v", err)
+	}
+}
+
+func TestValidateCommand_PositiveCooldown_Valid(t *testing.T) {
+	cmd := &CommandConfig{
+		Name: "kick", Description: "Kick a player",
+		Type: CommandTypeInternal, Cooldown: 10 * time.Second,
+	}
+	if err := validateCommand(cmd); err != nil {
+		t.Errorf("expected no error for positive cooldown, got: %v", err)
+	}
+}
+
+func TestValidateCommand_NegativeCooldown_ReturnsError(t *testing.T) {
+	cmd := &CommandConfig{
+		Name: "kick", Description: "Kick a player",
+		Type: CommandTypeInternal, Cooldown: -1 * time.Second,
+	}
+	if err := validateCommand(cmd); err == nil {
+		t.Error("expected error for negative cooldown, got nil")
+	}
+}
+
 // ── ExtractGroups ─────────────────────────────────────────────────────────────
 
 func mustCompile(pattern string) *regexp.Regexp {

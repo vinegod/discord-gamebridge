@@ -101,6 +101,10 @@ func (c *Config) applyDefaults() {
 		if c.Commands[i].CommandTimeout == 0 {
 			c.Commands[i].CommandTimeout = defaultCommandTimeout
 		}
+		if c.Commands[i].EphemeralOutput == nil {
+			v := true
+			c.Commands[i].EphemeralOutput = &v
+		}
 	}
 }
 
