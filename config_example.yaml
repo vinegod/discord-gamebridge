@@ -27,24 +27,60 @@ server:
   chat_timeout: 5s
   discord_webhook_env: "DISCORD_WEBHOOK"
 
+  # Optional log/audit channel. Lines with channel: log are routed here.
+  # discord_console_channel_id: "98765432109876543"
+  # discord_console_webhook_env: "DISCORD_LOG_WEBHOOK"
+
   # Log tailing for game -> discord
   log_file_path: "/home/user/terraria_server/logs/server.log"
 
   chat_template: "say {{.user}} {{.message}}"
   chat_executor: "tmux"
-  regex_parsers:
-    # Matches: <PlayerName> Hello world!
-    chat: '^<(?P<player>[^>]+)> (?P<message>.*)$'
-    # Matches: PlayerName has joined.
-    join: '^(?P<player>[^\s]+) has joined\.$'
-    # Matches: PlayerName has left.
-    leave: '^(?P<player>[^\s]+) has left\.$'
-    # Matches different console logs
-    console: '^(Terraria Server v|Listening on port|World saved).*'
-    # Matches: Blood moon is rising and other events.
-    events: '.*(has awoken!|have been defeated!|is approaching!|is rising\.\.\.|falling from the sky!)$'
-    # Matches: <Server> Hello world! This text won't be send to discord channel.
-    ignore: '^<Server> .*$'
+
+  # Log rules are evaluated in order; first match wins.
+  # Template variables: {{.line}} = full line, {{.groupname}} = named regex group.
+  # channel: chat (default) routes to discord_chat_channel_id.
+  # channel: log routes to discord_console_channel_id (if configured).
+  log_rules:
+    # Drop server-generated chat so it doesn't echo back.
+    - name: ignore_server
+      regex: '^<Server> .*$'
+      ignore: true
+
+    # Player chat: <PlayerName> Hello world!
+    - name: chat
+      regex: '^<(?P<player>[^>]+)> (?P<message>.*)$'
+      username: '{{.player}}'
+      message: '{{.message}}'
+      channel: chat
+
+    # Player joined: PlayerName has joined.
+    - name: join
+      regex: '^(?P<player>[^\s]+) has joined\.$'
+      username: Server
+      message: '🟢 **{{.player}}** joined the server.'
+      channel: chat
+
+    # Player left: PlayerName has left.
+    - name: leave
+      regex: '^(?P<player>[^\s]+) has left\.$'
+      username: Server
+      message: '🔴 **{{.player}}** left the server.'
+      channel: chat
+
+    # Game events: boss spawns, invasions, etc.
+    - name: events
+      regex: '.*(has awoken!|have been defeated!|is approaching!|is rising\.\.\.|falling from the sky!)$'
+      username: System
+      message: '{{.line}}'
+      channel: chat
+
+    # Server console output -> log/audit channel.
+    - name: console
+      regex: '^(Terraria Server v|Listening on port|World saved).*'
+      username: System
+      message: '{{.line}}'
+      channel: log
 
 executors:
   tmux:
