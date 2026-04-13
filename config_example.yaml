@@ -99,6 +99,7 @@ commands:
     description: "Kicks a player from the Terraria server"
     executor: "tmux"
     script_timeout: 10s
+    cooldown: 10s   # optional: each user must wait 10s between kicks
     template: "kick {{.player}} {{.reason}}"
     permissions: *admin_perms
     arguments:
