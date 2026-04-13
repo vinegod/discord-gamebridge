@@ -42,6 +42,11 @@ func Load(configPath string) (*Config, error) {
 		cfg.Server.DiscordWebhookURL = os.Getenv(cfg.Server.DiscordWebhookEnv)
 	}
 
+	// Console/log channel webhook URL from env
+	if cfg.Server.DiscordConsoleWebhookEnv != "" {
+		cfg.Server.DiscordConsoleWebhookURL = os.Getenv(cfg.Server.DiscordConsoleWebhookEnv)
+	}
+
 	// Resolve RCON passwords from env
 	for name, ex := range cfg.Executors {
 		if ex.Type == ExecutorTypeRcon && ex.PasswordEnv != "" {
@@ -63,13 +68,19 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	// Compile server regex patterns
-	acc.add(compileRegex("chat", cfg.Server.RegexParsers.Chat, &cfg.Server.CompiledChat))
-	acc.add(compileRegex("join", cfg.Server.RegexParsers.Join, &cfg.Server.CompiledJoin))
-	acc.add(compileRegex("leave", cfg.Server.RegexParsers.Leave, &cfg.Server.CompiledLeave))
-	acc.add(compileRegex("console", cfg.Server.RegexParsers.Console, &cfg.Server.CompiledConsole))
-	acc.add(compileRegex("events", cfg.Server.RegexParsers.Events, &cfg.Server.CompiledEvents))
-	acc.add(compileRegex("ignore", cfg.Server.RegexParsers.Ignore, &cfg.Server.CompiledIgnore))
+	// Compile log rules in order
+	for i := range cfg.Server.LogRules {
+		rule := &cfg.Server.LogRules[i]
+		if rule.Regex == "" {
+			continue
+		}
+		re, err := regexp.Compile(rule.Regex)
+		if err != nil {
+			acc.add(fmt.Errorf("log_rules[%d] %q: invalid regex: %w", i, rule.Name, err))
+			continue
+		}
+		rule.Compiled = re
+	}
 
 	if err := acc.err(); err != nil {
 		return nil, err

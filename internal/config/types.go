@@ -60,7 +60,35 @@ type ExecutorConfig struct {
 	AllowedScriptDir string `yaml:"allowed_script_dir"`
 }
 
-// ServerConfig defines routing parameters, regex parsers, and Discord targets.
+// LogChannel identifies which Discord channel a log rule routes to.
+// YAML values must be the string literals "chat" or "log".
+type LogChannel string
+
+const (
+	LogChannelChat LogChannel = "chat"
+	LogChannelLog  LogChannel = "log"
+)
+
+// LogRuleConfig describes a single log-matching rule. Rules are evaluated in
+// order; the first match wins. Ignore rules drop the line silently. All other
+// rules forward a message to the configured Discord channel.
+//
+// Template variables available in Username and Message:
+//   - {{.line}}       - the full (trimmed) log line
+//   - {{.groupname}}  - any named capture group from Regex
+type LogRuleConfig struct {
+	Name     string `yaml:"name"`
+	Regex    string `yaml:"regex"`
+	Ignore   bool   `yaml:"ignore"`
+	Username string `yaml:"username"`
+	Message  string `yaml:"message"`
+	// Channel routes the message to the chat channel (default) or the optional
+	// log/audit channel configured via discord_console_channel_id.
+	Channel  LogChannel     `yaml:"channel"`
+	Compiled *regexp.Regexp `yaml:"-"`
+}
+
+// ServerConfig defines routing parameters, log rules, and Discord targets.
 type ServerConfig struct {
 	// ChatExecutor is the name of the executor used for Discord→Game chat.
 	// Required when chat_template is set.
@@ -71,29 +99,13 @@ type ServerConfig struct {
 	DiscordChatChannelID     string `yaml:"discord_chat_channel_id"`
 	DiscordWebhookEnv        string `yaml:"discord_webhook_env"`
 	DiscordConsoleChannelID  string `yaml:"discord_console_channel_id"`
+	DiscordConsoleWebhookEnv string `yaml:"discord_console_webhook_env"`
 	DiscordConsoleWebhookURL string `yaml:"discord_console_webhook_url"`
 
-	ChatTemplate string        `yaml:"chat_template"`
-	ChatTimeout  time.Duration `yaml:"chat_timeout"`
-	LogFilePath  string        `yaml:"log_file_path"`
-	RegexParsers RegexParsers  `yaml:"regex_parsers"`
-
-	CompiledChat    *regexp.Regexp `yaml:"-"`
-	CompiledJoin    *regexp.Regexp `yaml:"-"`
-	CompiledLeave   *regexp.Regexp `yaml:"-"`
-	CompiledConsole *regexp.Regexp `yaml:"-"`
-	CompiledEvents  *regexp.Regexp `yaml:"-"`
-	CompiledIgnore  *regexp.Regexp `yaml:"-"`
-}
-
-// RegexParsers holds raw regular expression strings for log matching.
-type RegexParsers struct {
-	Chat    string `yaml:"chat"`
-	Join    string `yaml:"join"`
-	Leave   string `yaml:"leave"`
-	Console string `yaml:"console"`
-	Events  string `yaml:"events"`
-	Ignore  string `yaml:"ignore"`
+	ChatTemplate string          `yaml:"chat_template"`
+	ChatTimeout  time.Duration   `yaml:"chat_timeout"`
+	LogFilePath  string          `yaml:"log_file_path"`
+	LogRules     []LogRuleConfig `yaml:"log_rules"`
 }
 
 // CommandType identifies the execution method for a slash command.
@@ -215,6 +227,15 @@ func (s *ServerConfig) ParsedChatChannelID() (snowflake.ID, error) {
 	id, err := snowflake.Parse(s.DiscordChatChannelID)
 	if err != nil {
 		return 0, fmt.Errorf("invalid discord_chat_channel_id %q: %w", s.DiscordChatChannelID, err)
+	}
+	return id, nil
+}
+
+// ParsedConsoleChannelID parses DiscordConsoleChannelID as a Discord snowflake.
+func (s *ServerConfig) ParsedConsoleChannelID() (snowflake.ID, error) {
+	id, err := snowflake.Parse(s.DiscordConsoleChannelID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid discord_console_channel_id %q: %w", s.DiscordConsoleChannelID, err)
 	}
 	return id, nil
 }

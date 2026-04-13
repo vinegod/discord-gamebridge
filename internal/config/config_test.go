@@ -37,11 +37,30 @@ server:
   discord_webhook_env: "TEST_WEBHOOK_URL"
   log_file_path: "/tmp/server.log"
   chat_template: "say {{.user}}: {{.message}}"
-  regex_parsers:
-    chat:    '^<(?P<player>[^>]+)> (?P<message>.*)$'
-    join:    '^(?P<player>\S+) has joined\.$'
-    leave:   '^(?P<player>\S+) has left\.$'
-    console: '^(Terraria Server|Listening on port).*'
+  log_rules:
+    - name: ignore_server
+      regex: '^<Server> .*$'
+      ignore: true
+    - name: chat
+      regex: '^<(?P<player>[^>]+)> (?P<message>.*)$'
+      username: '{{.player}}'
+      message: '{{.message}}'
+      channel: chat
+    - name: join
+      regex: '^(?P<player>\S+) has joined\.$'
+      username: Server
+      message: "joined"
+      channel: chat
+    - name: leave
+      regex: '^(?P<player>\S+) has left\.$'
+      username: Server
+      message: "left"
+      channel: chat
+    - name: console
+      regex: '^(Terraria Server|Listening on port).*'
+      username: System
+      message: '{{.line}}'
+      channel: log
 
 commands: []
 `
@@ -110,10 +129,14 @@ func TestValidate_ValidConfig_ReturnsNil(t *testing.T) {
 			ChatTemplate:         "say {{.user}}: {{.message}}",
 			DiscordWebhookURL:    "https://discord.com/api/webhooks/x",
 			DiscordChatChannelID: "123456789012345678", // gitleaks:allow
-			RegexParsers: RegexParsers{
-				Chat:  `^<(?P<player>[^>]+)> (?P<message>.*)$`,
-				Join:  `^(?P<player>\S+) has joined\.$`,
-				Leave: `^(?P<player>\S+) has left\.$`,
+			LogRules: []LogRuleConfig{
+				{
+					Name:     "chat",
+					Regex:    `^<(?P<player>[^>]+)> (?P<message>.*)$`,
+					Username: "{{.player}}",
+					Message:  "{{.message}}",
+					Channel:  LogChannelChat,
+				},
 			},
 		},
 	}
@@ -465,7 +488,7 @@ func TestLoad_DefaultsApplied(t *testing.T) {
 	}
 }
 
-func TestLoad_RegexesCompiled(t *testing.T) {
+func TestLoad_LogRules_AllCompiled(t *testing.T) {
 	path := writeConfig(t, validConfigYAML)
 	t.Setenv("TEST_BOT_TOKEN", "x")
 
@@ -473,17 +496,13 @@ func TestLoad_RegexesCompiled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Server.CompiledChat == nil {
-		t.Error("expected CompiledChat to be set")
+	if len(cfg.Server.LogRules) == 0 {
+		t.Fatal("expected log rules to be loaded")
 	}
-	if cfg.Server.CompiledJoin == nil {
-		t.Error("expected CompiledJoin to be set")
-	}
-	if cfg.Server.CompiledLeave == nil {
-		t.Error("expected CompiledLeave to be set")
-	}
-	if cfg.Server.CompiledConsole == nil {
-		t.Error("expected CompiledConsole to be set")
+	for i, rule := range cfg.Server.LogRules {
+		if rule.Compiled == nil {
+			t.Errorf("LogRules[%d] %q: Compiled should be set after Load", i, rule.Name)
+		}
 	}
 }
 
@@ -586,7 +605,9 @@ func TestLoad_InvalidOutputPattern_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestLoad_OptionalIgnoreRegex_NotSetWhenEmpty(t *testing.T) {
+func TestLoad_IgnoreRule_IsCompiled(t *testing.T) {
+	// Ignore rules have no message/username but must still have their
+	// Compiled field populated so processLogLine can match against them.
 	path := writeConfig(t, validConfigYAML)
 	t.Setenv("TEST_BOT_TOKEN", "x")
 
@@ -594,27 +615,17 @@ func TestLoad_OptionalIgnoreRegex_NotSetWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Server.CompiledIgnore != nil {
-		t.Error("CompiledIgnore should be nil when ignore regex is not configured")
+	var found bool
+	for _, rule := range cfg.Server.LogRules {
+		if rule.Ignore {
+			found = true
+			if rule.Compiled == nil {
+				t.Errorf("ignore rule %q: Compiled should be set after Load", rule.Name)
+			}
+		}
 	}
-}
-
-func TestLoad_OptionalIgnoreRegex_SetWhenProvided(t *testing.T) {
-	withIgnore := strings.Replace(
-		validConfigYAML,
-		"    console: '^(Terraria Server|Listening on port).*'",
-		"    console: '^(Terraria Server|Listening on port).*'\n    ignore: '^<Server> .*$'",
-		1,
-	)
-	path := writeConfig(t, withIgnore)
-	t.Setenv("TEST_BOT_TOKEN", "x")
-
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.Server.CompiledIgnore == nil {
-		t.Error("CompiledIgnore should be set when ignore regex is provided")
+	if !found {
+		t.Skip("validConfigYAML has no ignore rules; test is not applicable")
 	}
 }
 
@@ -645,8 +656,8 @@ func TestLoad_MissingToken_ReturnsError(t *testing.T) {
 
 func TestLoad_InvalidChatRegex_ReturnsError(t *testing.T) {
 	broken := strings.ReplaceAll(validConfigYAML,
-		`chat:    '^<(?P<player>[^>]+)> (?P<message>.*)$'`,
-		`chat:    '[invalid regex'`,
+		`regex: '^<(?P<player>[^>]+)> (?P<message>.*)$'`,
+		`regex: '[invalid regex'`,
 	)
 	path := writeConfig(t, broken)
 	t.Setenv("TEST_BOT_TOKEN", "x")
@@ -662,8 +673,8 @@ func TestLoad_InvalidChatRegex_ReturnsError(t *testing.T) {
 
 func TestLoad_InvalidJoinRegex_ReturnsError(t *testing.T) {
 	broken := strings.ReplaceAll(validConfigYAML,
-		`join:    '^(?P<player>\S+) has joined\.$'`,
-		`join:    '[invalid'`,
+		`regex: '^(?P<player>\S+) has joined\.$'`,
+		`regex: '[invalid'`,
 	)
 	path := writeConfig(t, broken)
 	t.Setenv("TEST_BOT_TOKEN", "x")
@@ -676,8 +687,8 @@ func TestLoad_InvalidJoinRegex_ReturnsError(t *testing.T) {
 
 func TestLoad_InvalidLeaveRegex_ReturnsError(t *testing.T) {
 	broken := strings.ReplaceAll(validConfigYAML,
-		`leave:   '^(?P<player>\S+) has left\.$'`,
-		`leave:   '[invalid'`,
+		`regex: '^(?P<player>\S+) has left\.$'`,
+		`regex: '[invalid'`,
 	)
 	path := writeConfig(t, broken)
 	t.Setenv("TEST_BOT_TOKEN", "x")
@@ -722,6 +733,93 @@ func TestParsedChatChannelID_ErrorContainsFieldName(t *testing.T) {
 	_, err := s.ParsedChatChannelID()
 	if !strings.Contains(err.Error(), "discord_chat_channel_id") {
 		t.Errorf("error should mention the field name, got: %v", err)
+	}
+}
+
+// ── ParsedConsoleChannelID ────────────────────────────────────────────────────
+
+func TestParsedConsoleChannelID_ValidID_Parses(t *testing.T) {
+	s := &ServerConfig{DiscordConsoleChannelID: "123456789012345678"} // gitleaks:allow
+	id, err := s.ParsedConsoleChannelID()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id.String() != "123456789012345678" {
+		t.Errorf("expected ID '123456789012345678', got %q", id.String())
+	}
+}
+
+func TestParsedConsoleChannelID_NonNumericString_ReturnsError(t *testing.T) {
+	s := &ServerConfig{DiscordConsoleChannelID: "not-a-snowflake"}
+	_, err := s.ParsedConsoleChannelID()
+	if err == nil {
+		t.Fatal("expected error for non-numeric channel ID, got nil")
+	}
+}
+
+func TestParsedConsoleChannelID_ErrorContainsFieldName(t *testing.T) {
+	s := &ServerConfig{DiscordConsoleChannelID: "bad"}
+	_, err := s.ParsedConsoleChannelID()
+	if !strings.Contains(err.Error(), "discord_console_channel_id") {
+		t.Errorf("error should mention the field name, got: %v", err)
+	}
+}
+
+// ── validateArgument ──────────────────────────────────────────────────────────
+
+func TestValidateArgument_Valid_NoError(t *testing.T) {
+	arg := ArgumentConfig{Name: "player", Description: "Target player", Type: VariableTypeString}
+	if err := validateArgument("cmd", 0, arg); err != nil {
+		t.Errorf("expected no error for valid argument, got: %v", err)
+	}
+}
+
+func TestValidateArgument_EmptyName_ReturnsError(t *testing.T) {
+	arg := ArgumentConfig{Name: "", Description: "desc", Type: VariableTypeString}
+	if err := validateArgument("cmd", 0, arg); err == nil {
+		t.Error("expected error for empty name, got nil")
+	}
+}
+
+func TestValidateArgument_NameWithWhitespace_ReturnsError(t *testing.T) {
+	arg := ArgumentConfig{Name: "bad name", Description: "desc", Type: VariableTypeString}
+	if err := validateArgument("cmd", 0, arg); err == nil {
+		t.Error("expected error for name with whitespace, got nil")
+	}
+}
+
+func TestValidateArgument_EmptyDescription_ReturnsError(t *testing.T) {
+	arg := ArgumentConfig{Name: "player", Description: "", Type: VariableTypeString}
+	if err := validateArgument("cmd", 0, arg); err == nil {
+		t.Error("expected error for empty description, got nil")
+	}
+}
+
+func TestValidateArgument_DescriptionTooLong_ReturnsError(t *testing.T) {
+	arg := ArgumentConfig{Name: "player", Description: strings.Repeat("x", 101), Type: VariableTypeString}
+	if err := validateArgument("cmd", 0, arg); err == nil {
+		t.Error("expected error for description over 100 chars, got nil")
+	}
+}
+
+func TestValidateArgument_EmptyType_ReturnsError(t *testing.T) {
+	arg := ArgumentConfig{Name: "player", Description: "desc", Type: ""}
+	if err := validateArgument("cmd", 0, arg); err == nil {
+		t.Error("expected error for empty type, got nil")
+	}
+}
+
+func TestValidateArgument_UnknownType_ReturnsError(t *testing.T) {
+	arg := ArgumentConfig{Name: "player", Description: "desc", Type: "integer"}
+	if err := validateArgument("cmd", 0, arg); err == nil {
+		t.Error("expected error for unknown type, got nil")
+	}
+}
+
+func TestValidateArgument_BoolType_Valid(t *testing.T) {
+	arg := ArgumentConfig{Name: "flag", Description: "Enable feature", Type: VariableTypeBool}
+	if err := validateArgument("cmd", 0, arg); err != nil {
+		t.Errorf("expected no error for bool type, got: %v", err)
 	}
 }
 

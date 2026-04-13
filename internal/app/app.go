@@ -183,33 +183,56 @@ func buildRegistry(cfg *config.Config) (*executor.Registry, error) {
 	return reg, nil
 }
 
-// buildSender constructs and starts the Discord message sender.
+// buildSender constructs and starts a single Discord message sender with all
+// configured channels registered. The chat channel is the default target;
+// the console/log channel is optional and registered under the "log" key.
 func buildSender(ctx context.Context, cfg *config.Config, discordBot *bot.BotWrapper) (*discord.Sender, error) {
 	if cfg.Server.DiscordChatChannelID == "" {
 		slog.Warn("discord_chat_channel_id not set, game→Discord forwarding disabled")
 		return nil, nil
 	}
 
-	var webhookClient *webhook.Client
+	channels := make(map[string]discord.ChannelTarget)
+
+	// Chat channel (default)
+	chatChannelID, err := cfg.Server.ParsedChatChannelID()
+	if err != nil {
+		return nil, fmt.Errorf("parse chat channel ID: %w", err)
+	}
+	chatTarget := discord.ChannelTarget{ChannelID: chatChannelID}
 	if cfg.Server.DiscordWebhookURL != "" {
 		wc, err := webhook.NewWithURL(cfg.Server.DiscordWebhookURL)
 		if err != nil {
 			return nil, fmt.Errorf("parse webhook URL: %w", err)
 		}
-		webhookClient = wc
-		slog.Info("webhook client configured")
+		chatTarget.WebhookClient = wc
+		slog.Info("chat channel webhook client configured")
 	} else {
 		slog.Warn("no webhook URL configured, falling back to bot messages (no player avatars)")
 	}
+	channels[string(config.LogChannelChat)] = chatTarget
 
-	channelID, err := cfg.Server.ParsedChatChannelID()
-	if err != nil {
-		return nil, fmt.Errorf("parse chat channel ID: %w", err)
+	// Console/log channel (optional)
+	if cfg.Server.DiscordConsoleChannelID != "" {
+		logChannelID, err := cfg.Server.ParsedConsoleChannelID()
+		if err != nil {
+			return nil, fmt.Errorf("parse console channel ID: %w", err)
+		}
+		logTarget := discord.ChannelTarget{ChannelID: logChannelID}
+		if cfg.Server.DiscordConsoleWebhookURL != "" {
+			wc, err := webhook.NewWithURL(cfg.Server.DiscordConsoleWebhookURL)
+			if err != nil {
+				return nil, fmt.Errorf("parse log webhook URL: %w", err)
+			}
+			logTarget.WebhookClient = wc
+			slog.Info("log channel webhook client configured")
+		}
+		channels[string(config.LogChannelLog)] = logTarget
 	}
 
 	sender := discord.NewSender(&discord.SenderConfig{
-		ChannelID:     channelID,
-		WebhookClient: webhookClient,
+		Channels:      channels,
+		DefaultTarget: string(config.LogChannelChat),
 		BotClient:     discordBot.Client,
 		FlushInterval: 500 * time.Millisecond,
 		MaxBatchLines: 15,

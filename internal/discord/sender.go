@@ -25,6 +25,13 @@ type MessageSender interface {
 	Send(msg Message)
 }
 
+// ChannelTarget holds the routing info for one Discord channel.
+// WebhookClient takes priority over BotClient when non-nil.
+type ChannelTarget struct {
+	ChannelID     snowflake.ID
+	WebhookClient *webhook.Client // nil → fall back to BotClient
+}
+
 // Message is a single unit of content to be sent to Discord.
 // Username and AvatarURL are used only when sending via webhook;
 // they are silently ignored when falling back to the bot client.
@@ -32,12 +39,17 @@ type Message struct {
 	Content   string
 	Username  string // optional: display name override (webhook only)
 	AvatarURL string // optional: avatar override (webhook only)
+	// Target names the entry in SenderConfig.Channels to route this message to.
+	// Empty string falls back to SenderConfig.DefaultTarget.
+	Target string
 }
 
 // SenderConfig defines the tuning parameters for the batched message dispatcher.
 type SenderConfig struct {
-	ChannelID        snowflake.ID
-	WebhookClient    *webhook.Client
+	// Channels maps target names (Message.Target) to Discord channel routing.
+	// DefaultTarget is the fallback key when Message.Target is absent or unknown.
+	Channels         map[string]ChannelTarget
+	DefaultTarget    string
 	BotClient        *bot.Client
 	FlushInterval    time.Duration
 	MaxBatchLines    int
@@ -118,7 +130,7 @@ func (s *Sender) Send(msg Message) {
 	case s.inbox <- msg:
 	default:
 		slog.Warn("sender inbox full, dropping message",
-			"channel", s.cfg.ChannelID,
+			"target", msg.Target,
 			"username", msg.Username,
 		)
 	}
@@ -174,10 +186,11 @@ func (s *Sender) batcher() {
 func (s *Sender) worker(ctx context.Context, id int) {
 	defer s.wg.Done()
 
-	log := slog.With("worker", id, "channel", s.cfg.ChannelID)
+	log := slog.With("worker", id)
 
 	for batch := range s.work {
 		for _, group := range groupByUsername(batch) {
+			target := s.targetFor(group[0].Target)
 			for _, chunk := range formatGroup(group, s.cfg.MaxMessageLength) {
 				if err := s.limiter.Wait(ctx); err != nil {
 					// Only occurs if context is cancelled or burst is exceeded
@@ -185,10 +198,11 @@ func (s *Sender) worker(ctx context.Context, id int) {
 					continue
 				}
 
-				if err := s.sendWithRetry(ctx, log, group[0], chunk); err != nil {
+				if err := s.sendWithRetry(ctx, log, group[0], chunk, target); err != nil {
 					log.Error("failed to deliver message",
 						"error", err,
 						"username", group[0].Username,
+						"target", group[0].Target,
 					)
 				}
 			}
@@ -196,7 +210,13 @@ func (s *Sender) worker(ctx context.Context, id int) {
 	}
 }
 
-func (s *Sender) sendWithRetry(ctx context.Context, log *slog.Logger, representative Message, content string) error {
+func (s *Sender) sendWithRetry(
+	ctx context.Context,
+	log *slog.Logger,
+	representative Message,
+	content string,
+	target ChannelTarget,
+) error {
 	var lastErr error
 
 	for attempt := range s.cfg.MaxRetries + 1 {
@@ -208,7 +228,7 @@ func (s *Sender) sendWithRetry(ctx context.Context, log *slog.Logger, representa
 			)
 		}
 
-		retryAfter, err := s.doSend(representative, content)
+		retryAfter, err := s.doSend(representative, content, target)
 		if err == nil {
 			return nil
 		}
@@ -233,14 +253,14 @@ func (s *Sender) sendWithRetry(ctx context.Context, log *slog.Logger, representa
 }
 
 // doSend routes the API call to the webhook or bot client. Returns (retryAfter > 0, error) on HTTP 429.
-func (s *Sender) doSend(msg Message, content string) (time.Duration, error) {
-	if s.cfg.WebhookClient != nil {
-		return s.sendViaWebhook(msg, content)
+func (s *Sender) doSend(msg Message, content string, target ChannelTarget) (time.Duration, error) {
+	if target.WebhookClient != nil {
+		return s.sendViaWebhook(msg, content, target.WebhookClient)
 	}
-	return s.sendViaBot(content)
+	return s.sendViaBot(content, target.ChannelID)
 }
 
-func (s *Sender) sendViaWebhook(msg Message, content string) (time.Duration, error) {
+func (s *Sender) sendViaWebhook(msg Message, content string, wc *webhook.Client) (time.Duration, error) {
 	payload := discord.WebhookMessageCreate{Content: content}
 	if msg.Username != "" {
 		payload.Username = msg.Username
@@ -249,21 +269,33 @@ func (s *Sender) sendViaWebhook(msg Message, content string) (time.Duration, err
 		payload.AvatarURL = msg.AvatarURL
 	}
 
-	_, err := (*s.cfg.WebhookClient).CreateMessage(payload, rest.CreateWebhookMessageParams{})
+	_, err := (*wc).CreateMessage(payload, rest.CreateWebhookMessageParams{})
 	if err != nil {
 		return parseRetryAfter(err), fmt.Errorf("webhook send: %w", err)
 	}
 	return 0, nil
 }
 
-func (s *Sender) sendViaBot(content string) (time.Duration, error) {
-	_, err := s.cfg.BotClient.Rest.CreateMessage(s.cfg.ChannelID, discord.MessageCreate{
+func (s *Sender) sendViaBot(content string, channelID snowflake.ID) (time.Duration, error) {
+	_, err := s.cfg.BotClient.Rest.CreateMessage(channelID, discord.MessageCreate{
 		Content: content,
 	})
 	if err != nil {
 		return parseRetryAfter(err), fmt.Errorf("bot send: %w", err)
 	}
 	return 0, nil
+}
+
+// targetFor returns the ChannelTarget for the given name, falling back to
+// DefaultTarget when the name is not found in Channels.
+func (s *Sender) targetFor(target string) ChannelTarget {
+	if ct, ok := s.cfg.Channels[target]; ok {
+		return ct
+	}
+	if ct, ok := s.cfg.Channels[s.cfg.DefaultTarget]; ok {
+		return ct
+	}
+	return ChannelTarget{}
 }
 
 // groupByUsername splits a flat message slice into runs of consecutive messages.
@@ -275,7 +307,7 @@ func groupByUsername(msgs []Message) [][]Message {
 	current := []Message{msgs[0]}
 
 	for _, msg := range msgs[1:] {
-		if msg.Username == current[0].Username {
+		if msg.Username == current[0].Username && msg.Target == current[0].Target {
 			current = append(current, msg)
 		} else {
 			groups = append(groups, current)

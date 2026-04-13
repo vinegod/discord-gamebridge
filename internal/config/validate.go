@@ -9,7 +9,7 @@ import (
 // Validate checks the loaded configuration for semantic errors and logs
 // feature status. Returns an error if any required fields are missing or
 // invalid - the application should not start with a failed Validate.
-func (c *Config) Validate() error {
+func (c *Config) Validate() error { //nolint:gocognit,gocyclo // validation is inherently branchy; extracting helpers would obscure the intent
 	slog.Info("validating configuration")
 
 	// Feature status logging
@@ -38,7 +38,32 @@ func (c *Config) Validate() error {
 		slog.Warn("no webhook URL - messages will appear from bot account, not player names")
 	}
 
+	if c.Server.DiscordConsoleChannelID != "" {
+		slog.Info("log channel enabled", "channel", c.Server.DiscordConsoleChannelID)
+	}
+
 	acc := &errAccumulator{}
+
+	// Validate log rules
+	for i, rule := range c.Server.LogRules {
+		label := rule.Name
+		if label == "" {
+			label = fmt.Sprintf("index %d", i)
+		}
+		if rule.Regex == "" {
+			acc.add(fmt.Errorf("log_rules[%d] %q: regex is required", i, label))
+		}
+		if !rule.Ignore {
+			if rule.Message == "" {
+				acc.add(fmt.Errorf("log_rules[%d] %q: message is required", i, label))
+			}
+			if rule.Channel != "" && rule.Channel != LogChannelChat && rule.Channel != LogChannelLog {
+				acc.add(
+					fmt.Errorf("log_rules[%d] %q: channel must be %q or %q", i, label, LogChannelChat, LogChannelLog),
+				)
+			}
+		}
+	}
 
 	// Validate executors
 	for name, ex := range c.Executors {
