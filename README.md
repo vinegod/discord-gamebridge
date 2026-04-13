@@ -19,122 +19,120 @@ It provides two-way chat routing, log monitoring, and remote command execution v
 
 ## Features
 
-- Two-Way Chat Routing: Reads server logs via regex parsing and forwards in-game chat to Discord webhooks. Forwards Discord messages back to the game console via tmux.
-- Log Tailing & Filtering: Monitors server log files and filters output based on configurable regular expressions (e.g., player joins, leaves, console events).
-- Remote Command Execution: Execute local shell scripts or tmux commands from Discord using slash commands.
-- Role-Based Access Control: Restrict specific commands to designated Discord User IDs or Role IDs.
-- Rate-Limited Dispatching: Batches outgoing Discord messages to comply with API rate limits and prevent spam.
+- **Two-way chat**: Forwards in-game chat to Discord (via webhook or bot) and Discord messages back to the game console.
+- **Config-driven log rules**: Ordered regex rules match log lines, expand named capture groups into templates, and route output to a chat or audit channel.
+- **Remote command execution**: Run tmux commands, RCON commands, or local shell scripts from Discord slash commands.
+- **Role-based access control**: Restrict commands to specific Discord user or role IDs.
+- **Per-command cooldowns**: Limit how often each user can invoke a command.
+- **Ephemeral responses**: Command output is sent only to the invoker by default; configurable per command.
+- **Rate-limited dispatch**: Outgoing messages are batched and rate-limited to stay within Discord API limits.
+- **Hot config reload**: Reload configuration without restarting the process via the `/reload` command.
 
 ## Installation
 ### Prerequisites
 
 1. [Go](https://go.dev/) 1.25.0 or higher
-2. A registered Discord Bot with a valid Token ([check discord developer portal](https://discord.com/developers))
-3. [tmux](https://github.com/tmux/tmux/wiki) (for tmux command execution)
+2. A registered Discord Bot with a valid token ([Discord Developer Portal](https://discord.com/developers))
+3. [tmux](https://github.com/tmux/tmux/wiki) — only needed when using the tmux executor
 
 ### Build Instructions
-
-1. Clone the repository:
-    Bash
 
 ```bash
 git clone https://github.com/vinegod/discordgamebridge.git
 cd discordgamebridge
-```
-
-2. Build the binary:
-
-```bash
-go build
+go build -o discord-gamebridge .
 ```
 
 ## Usage
 
-1. **Environment Setup**: Create a `.env` file in the root directory to store your Discord token and chat webhook:
+1. **Environment variables**: Store secrets in a `.env` file or export them directly:
 
-```python
+```bash
 DISCORD_TOKEN=your_bot_token_here
-DISCORD_WEBHOOK="https://discord.com/api/webhooks/xxx"
+DISCORD_WEBHOOK=https://discord.com/api/webhooks/xxx
 ```
 
-2. **Configuration:** Create a `config.yaml` file. Example:
+2. **Configuration**: Create a `config.yaml` file. Minimal example:
 
 ```yaml
 bot:
   token_env_var: "DISCORD_TOKEN"
   log_level: "info"
 
-
 executors:
   tmux:
     type: "tmux"
-    session: "terraria_server"
+    session: "terraria"
     window: 1
-    pane: 1
-
-  script:
-  type: "script"
-    allowed_script_dir: "/home/user/scripts"
+    pane: 0
 
 server:
-
   discord_chat_channel_id: "123456789012345678"
-  chat_template: "say {{.user}} {{.message}}"
+  discord_webhook_env: "DISCORD_WEBHOOK"
   chat_executor: "tmux"
-  log_file_path: "/home/user/terraria_server/logs/server.log"
+  chat_template: "say [Discord] {{.user}}: {{.message}}"
+  log_file_path: "/var/log/terraria/server.log"
 
-  regex_parsers:
-    chat: '^(?P<player>[a-zA-Z0-9_]+): (?P<message>.*)$'
-    ignore: '^<Server> .*$'
+  log_rules:
+    - name: ignore_server
+      regex: '^<Server> .*$'
+      ignore: true
+
+    - name: chat
+      regex: '^<(?P<player>[^>]+)> (?P<message>.*)$'
+      username: "{{.player}}"
+      message: "{{.message}}"
+      channel: chat
+
+    - name: join
+      regex: '^(?P<player>[^\s]+) has joined\.$'
+      username: "Server"
+      message: "🟢 **{{.player}}** joined."
+      channel: chat
 
 commands:
-  - name: "start"
-    description: "Boots the server"
-    type: "script"
-    script_path: "start.sh"
+  - name: "kick"
+    description: "Kick a player"
+    executor: "tmux"
+    template: "kick {{.player}}"
+    cooldown: 10s
+    ephemeral_output: false
     permissions:
-      allowed_users: ["YOUR_DISCORD_ID"]
+      allowed_roles: ["YOUR_ADMIN_ROLE_ID"]
+    arguments:
+      - name: "player"
+        type: "string"
+        description: "Exact in-game name"
+        required: true
 ```
 
-Or check detailed example [config_example.yaml](./config_example.yaml)
+See [config_example.yaml](./config_example.yaml) for a full annotated reference.
 
-3. **Run the application**:
+3. **Run**:
 
 ```bash
-./discordgamebridge -config=config_example.yaml
+./discord-gamebridge -config=config.yaml
 ```
 
-4. Force debug mode
+4. **Flags**:
 
-In this mode force logger to use debug mode
-```bash
-./discordgamebridge -config=config_example.yaml -debug
-```
-
-5. Validate config
-
-Run to validate input config for errors
-
-```bash
-./discordgamebridge -config=config_example.yaml -validate
-```
-
-6. Show version
-
-Run to see app version
-
-```bash
-./discordgamebridge -version
-```
+| Flag | Description |
+|------|-------------|
+| `-config <path>` | Path to config file (required) |
+| `-validate` | Validate config and exit |
+| `-debug` | Force debug log level |
+| `-version` | Print version and exit |
 
 ## Roadmap
 
-The following features are planned for future implementation:
-
-- [x] CLI support: Add possibility to pass different configuration and other parameters via CLI.
-- [x] Config reload command: reload configuration without restarting bot.
-- [x] Add RCON support
-- [ ] Docs: Add more documentation and examples.
-- [ ] Better template support: current chat template is very limited, Go provides much better tools for it.
-- [ ] Interactive Confirmations: Discord UI buttons to confirm or cancel commands.
-- [ ] "Ready and go": Add more default scripts...
+- [x] CLI flags: config path, validate, debug, version
+- [x] Config hot reload via `/reload` command
+- [x] RCON executor support
+- [x] Script executor support
+- [x] Config-driven log rules with named capture groups
+- [x] Dual-channel routing (chat + audit/log channel)
+- [x] Per-command cooldowns
+- [x] Ephemeral command responses
+- [ ] Interactive confirmations (Discord buttons for destructive commands)
+- [ ] Better template support (Go template functions in message fields)
+- [ ] More example scripts
