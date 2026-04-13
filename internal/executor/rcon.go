@@ -24,7 +24,6 @@ type RconExecutor struct {
 	conn *rcon.Conn
 }
 
-// Creates an RconExecutor.
 func NewRconExecutor(host string, port int, password string) *RconExecutor {
 	e := &RconExecutor{
 		address:  fmt.Sprintf("%s:%d", host, port),
@@ -59,7 +58,7 @@ func (e *RconExecutor) executeWithContext(ctx context.Context, command string) (
 		slog.Warn("RCON timed out, dropping connection", "address", e.address)
 		_ = e.conn.Close()
 		e.conn = nil
-		return "", fmt.Errorf("timeou error: %w", ctx.Err())
+		return "", fmt.Errorf("timeout: %w", ctx.Err())
 	case res := <-ch:
 		return res.resp, res.err
 	}
@@ -111,7 +110,6 @@ func (e *RconExecutor) Send(ctx context.Context, command string, _ ...string) (s
 }
 
 // Close closes the underlying RCON connection.
-// Implements LifecycleExecutor.
 func (e *RconExecutor) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -67,7 +67,6 @@ func RunScript(ctx context.Context, scriptPath, allowedDir string, args []string
 		return "", fmt.Errorf("script is not executable: %s (run chmod +x)", realScriptPath)
 	}
 
-	// TODO: Check G204 issue here
 	cmd := exec.CommandContext(ctx, realScriptPath, args...) // #nosec G204
 	output, err := cmd.CombinedOutput()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {

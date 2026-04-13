@@ -252,7 +252,7 @@ func (s *Sender) sendWithRetry(
 	return fmt.Errorf("send failed after %d attempts: %w", s.cfg.MaxRetries, lastErr)
 }
 
-// doSend routes the API call to the webhook or bot client. Returns (retryAfter > 0, error) on HTTP 429.
+// doSend routes the API call to the webhook or bot client.
 func (s *Sender) doSend(msg Message, content string, target ChannelTarget) (time.Duration, error) {
 	if target.WebhookClient != nil {
 		return s.sendViaWebhook(msg, content, target.WebhookClient)
