@@ -137,6 +137,10 @@ func validateCommand(cmd *CommandConfig) error {
 		acc.add(validateArgument(cmd.Name, i, arg))
 	}
 
+	if cmd.Cooldown < 0 {
+		acc.add(fmt.Errorf("command %q: cooldown must not be negative", cmd.Name))
+	}
+
 	if cmd.Output != nil {
 		if cmd.Output.Pattern == "" {
 			acc.add(fmt.Errorf("command %q: output.pattern is required when output is configured", cmd.Name))

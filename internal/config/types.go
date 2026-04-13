@@ -145,6 +145,14 @@ type CommandConfig struct {
 	// CommandTimeout is the per-execution deadline.
 	CommandTimeout time.Duration `yaml:"script_timeout"`
 
+	// Cooldown is the minimum time a user must wait between invocations.
+	// Zero means no cooldown. Accepts Go duration strings: "5s", "1m", "30s".
+	Cooldown time.Duration `yaml:"cooldown"`
+
+	// EphemeralOutput makes the command response visible only to the invoker.
+	// Defaults to true when omitted.
+	EphemeralOutput *bool `yaml:"ephemeral_output"`
+
 	// Output defines optional post-processing for executor output.
 	// If nil, the raw output is used unchanged.
 	Output *OutputConfig `yaml:"output"`

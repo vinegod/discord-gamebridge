@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
@@ -17,6 +19,12 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/version"
 )
 
+// cooldownKey identifies a (user, command) pair for per-user cooldown tracking.
+type cooldownKey struct {
+	command string
+	userID  string
+}
+
 // BotWrapper encapsulates the Discord client and handles slash command routing and execution.
 type BotWrapper struct {
 	Client     *bot.Client
@@ -25,6 +33,7 @@ type BotWrapper struct {
 	executors  *executor.Registry
 	ctx        context.Context
 	reloadCh   chan struct{}
+	cooldowns  sync.Map // key: cooldownKey, value: time.Time (expiry)
 }
 
 func NewBot(
@@ -82,6 +91,21 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 			Flags:   discord.MessageFlagEphemeral,
 		})
 		return
+	}
+
+	if cmdCfg.Cooldown > 0 {
+		key := cooldownKey{command: cmdCfg.Name, userID: event.User().ID.String()}
+		if exp, ok := b.cooldowns.Load(key); ok {
+			if remaining := time.Until(exp.(time.Time)); remaining > 0 {
+				replyEphemeral(event, fmt.Sprintf(
+					"⏳ Please wait %s before using `/%s` again.",
+					remaining.Round(time.Second), cmdCfg.Name,
+				))
+				return
+			}
+			b.cooldowns.Delete(key)
+		}
+		b.cooldowns.Store(key, time.Now().Add(cmdCfg.Cooldown))
 	}
 
 	switch cmdCfg.Type {
@@ -153,7 +177,7 @@ func (b *BotWrapper) handleExecutorCommand(
 	if deferred {
 		replyDeferred(b.Client, event, output, err)
 	} else {
-		replyImmediate(event, cmdCfg.Name, output, err)
+		replyImmediate(event, cmdCfg.Name, output, err, *cmdCfg.EphemeralOutput)
 	}
 }
 
@@ -171,7 +195,7 @@ func buildExecutorInput(
 				args = append(args, "--"+arg.Name)
 			}
 		}
-		_ = event.DeferCreateMessage(false)
+		_ = event.DeferCreateMessage(*cmdCfg.EphemeralOutput)
 		return cmdCfg.ScriptPath, args, true
 	}
 	return buildCommand(cmdCfg.Template, cmdCfg.Arguments, data), nil, false
@@ -192,7 +216,12 @@ func replyDeferred(client *bot.Client, event *events.ApplicationCommandInteracti
 }
 
 // replyImmediate responds to a tmux or rcon command.
-func replyImmediate(event *events.ApplicationCommandInteractionCreate, cmdName, output string, err error) {
+func replyImmediate(
+	event *events.ApplicationCommandInteractionCreate,
+	cmdName, output string,
+	err error,
+	ephemeral bool,
+) {
 	if err != nil {
 		replyEphemeral(event, fmt.Sprintf("Failed to execute command: %v", err))
 		return
@@ -203,7 +232,11 @@ func replyImmediate(event *events.ApplicationCommandInteractionCreate, cmdName, 
 	} else {
 		response = fmt.Sprintf("✅ `%s` executed.", cmdName)
 	}
-	if err := event.CreateMessage(discord.MessageCreate{Content: response}); err != nil {
+	msg := discord.MessageCreate{Content: response}
+	if ephemeral {
+		msg.Flags = discord.MessageFlagEphemeral
+	}
+	if err := event.CreateMessage(msg); err != nil {
 		slog.Error("failed to respond to user", "command", cmdName, "error", err)
 	}
 }
