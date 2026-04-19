@@ -221,7 +221,7 @@ func startLogTailing(ctx context.Context, cfg *config.Config, discordBot *bot.Bo
 func buildRegistry(cfg *config.Config) (*executor.Registry, error) {
 	reg := executor.NewRegistry()
 
-	for name, ex := range cfg.Executors {
+	for name, ex := range cfg.Executors { //nolint:gocritic // map range copy unavoidable
 		switch ex.Type {
 		case config.ExecutorTypeTmux:
 			reg.Register(name, &executor.TmuxExecutor{
@@ -240,6 +240,14 @@ func buildRegistry(cfg *config.Config) (*executor.Registry, error) {
 				AllowedDir: ex.AllowedScriptDir,
 			})
 			slog.Info("registered script executor", "name", name, "allowed_dir", ex.AllowedScriptDir)
+
+		case config.ExecutorTypeSSH:
+			sshEx, err := executor.NewSSHExecutor(ex.Host, ex.Port, ex.SSHUser, ex.SSHKeyFile, ex.SSHKnownHostsFile)
+			if err != nil {
+				return nil, fmt.Errorf("executor %q: %w", name, err)
+			}
+			reg.Register(name, sshEx)
+			slog.Info("registered ssh executor", "name", name, "address", fmt.Sprintf("%s:%d", ex.Host, ex.Port))
 
 		default:
 			return nil, fmt.Errorf("executor %q: unsupported type %q", name, ex.Type)

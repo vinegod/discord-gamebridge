@@ -19,7 +19,7 @@ func (c *Config) Validate() error {
 	acc := &errAccumulator{}
 	acc.add(validateLogRules(c.Server.LogRules))
 	acc.add(validateSchedules(c.Schedules))
-	for name, ex := range c.Executors {
+	for name, ex := range c.Executors { //nolint:gocritic // map range copy unavoidable
 		acc.add(validateExecutor(name, &ex))
 	}
 	acc.add(validateCommands(c.Commands))
@@ -233,6 +233,29 @@ func validateArgument(cmdName string, idx int, arg *ArgumentConfig) error {
 	return acc.err()
 }
 
+func validateSSHExecutor(name string, cfg *ExecutorConfig) error {
+	acc := &errAccumulator{}
+	if cfg.Host == "" {
+		acc.add(fmt.Errorf("executor %q: host is required for ssh type", name))
+	}
+	if cfg.UserEnv == "" {
+		acc.add(fmt.Errorf("executor %q: user_env is required for ssh type", name))
+	} else if cfg.SSHUser == "" {
+		acc.add(fmt.Errorf("executor %q: user_env [%s] is empty", name, cfg.UserEnv))
+	}
+	if cfg.KeyEnv == "" {
+		acc.add(fmt.Errorf("executor %q: key_env is required for ssh type", name))
+	} else if cfg.SSHKeyFile == "" {
+		acc.add(fmt.Errorf("executor %q: key_env [%s] is empty", name, cfg.KeyEnv))
+	}
+	if cfg.KnownHostsEnv == "" {
+		acc.add(fmt.Errorf("executor %q: known_hosts_env is required for ssh type", name))
+	} else if cfg.SSHKnownHostsFile == "" {
+		acc.add(fmt.Errorf("executor %q: known_hosts_env [%s] is empty", name, cfg.KnownHostsEnv))
+	}
+	return acc.err()
+}
+
 func validateStringArgConstraints(cmdName, argName string, arg *ArgumentConfig) error {
 	acc := &errAccumulator{}
 	if arg.MinLength < 0 {
@@ -269,10 +292,12 @@ func validateExecutor(name string, cfg *ExecutorConfig) error {
 		if cfg.AllowedScriptDir == "" {
 			acc.add(fmt.Errorf("executor %q: allowed_script_dir is required for script type", name))
 		}
+	case ExecutorTypeSSH:
+		acc.add(validateSSHExecutor(name, cfg))
 	case "":
-		acc.add(fmt.Errorf("executor %q: type is required (tmux, rcon, script)", name))
+		acc.add(fmt.Errorf("executor %q: type is required (tmux, rcon, script, ssh)", name))
 	default:
-		acc.add(fmt.Errorf("executor %q: unknown type %q (expected tmux, rcon, script)", name, cfg.Type))
+		acc.add(fmt.Errorf("executor %q: unknown type %q (expected tmux, rcon, script, ssh)", name, cfg.Type))
 	}
 
 	return acc.err()
