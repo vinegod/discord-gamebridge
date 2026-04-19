@@ -55,7 +55,7 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	// Resolve command types and compile output patterns
+	// Resolve command types, compile output patterns, and compile argument patterns
 	for idx := range cfg.Commands {
 		cfg.Commands[idx].Type = resolveType(&cfg.Commands[idx])
 
@@ -67,6 +67,7 @@ func Load(configPath string) (*Config, error) {
 			))
 		}
 	}
+	acc.add(compileArgumentPatterns(cfg.Commands))
 
 	// Compile log rules in order
 	for i := range cfg.Server.LogRules {
@@ -111,6 +112,23 @@ func (c *Config) applyDefaults() {
 			c.Schedules[i].Timeout = defaultScheduleTimeout
 		}
 	}
+}
+
+func compileArgumentPatterns(commands []CommandConfig) error {
+	acc := &errAccumulator{}
+	for idx := range commands {
+		for i := range commands[idx].Arguments {
+			arg := &commands[idx].Arguments[i]
+			if arg.Pattern != "" {
+				acc.add(compileRegex(
+					fmt.Sprintf("command %q argument %q pattern", commands[idx].Name, arg.Name),
+					arg.Pattern,
+					&arg.CompiledPattern,
+				))
+			}
+		}
+	}
+	return acc.err()
 }
 
 // compileRegex compiles pattern into dest. A blank pattern is a no-op.

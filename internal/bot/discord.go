@@ -166,6 +166,12 @@ func (b *BotWrapper) handleExecutorCommand(
 	}
 
 	data := event.SlashCommandInteractionData()
+
+	if err := validateArgValues(cmdCfg, &data); err != nil {
+		replyEphemeral(event, fmt.Sprintf("Invalid input: %v", err))
+		return
+	}
+
 	command, args, deferred := buildExecutorInput(cmdCfg, &data, event)
 
 	ctx, cancel := context.WithTimeout(ctx, cmdCfg.CommandTimeout)
@@ -279,11 +285,20 @@ func (b *BotWrapper) SyncCommands() error {
 					Required:    arg.Required,
 				})
 			} else {
-				options = append(options, discord.ApplicationCommandOptionString{
+				opt := discord.ApplicationCommandOptionString{
 					Name:        arg.Name,
 					Description: arg.Description,
 					Required:    arg.Required,
-				})
+				}
+				if arg.MinLength > 0 {
+					v := arg.MinLength
+					opt.MinLength = &v
+				}
+				if arg.MaxLength > 0 {
+					v := arg.MaxLength
+					opt.MaxLength = &v
+				}
+				options = append(options, opt)
 			}
 		}
 
@@ -340,6 +355,24 @@ func (b *BotWrapper) executeVersion(event *events.ApplicationCommandInteractionC
 
 func (b *BotWrapper) executePing(event *events.ApplicationCommandInteractionCreate) {
 	_ = event.CreateMessage(discord.MessageCreate{Content: "Pong! Bot is operational."})
+}
+
+// validateArgValues checks all string argument values against their configured constraints.
+func validateArgValues(cmdCfg *config.CommandConfig, data *discord.SlashCommandInteractionData) error {
+	for i := range cmdCfg.Arguments {
+		arg := &cmdCfg.Arguments[i]
+		if arg.Type != config.VariableTypeString {
+			continue
+		}
+		val, ok := data.OptString(arg.Name)
+		if !ok {
+			continue
+		}
+		if err := arg.ValidateValue(val); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	return nil
 }
 
 // buildCommand extracts argument values from the interaction.

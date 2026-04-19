@@ -171,8 +171,8 @@ func validateCommand(cmd *CommandConfig) error {
 		acc.add(fmt.Errorf("command %q: unknown type %q (expected executor, script, internal)", cmd.Name, cmd.Type))
 	}
 
-	for i, arg := range cmd.Arguments {
-		acc.add(validateArgument(cmd.Name, i, arg))
+	for i := range cmd.Arguments {
+		acc.add(validateArgument(cmd.Name, i, &cmd.Arguments[i]))
 	}
 
 	if cmd.Cooldown < 0 {
@@ -191,7 +191,7 @@ func validateCommand(cmd *CommandConfig) error {
 	return acc.err()
 }
 
-func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
+func validateArgument(cmdName string, idx int, arg *ArgumentConfig) error {
 	acc := &errAccumulator{}
 
 	switch {
@@ -212,8 +212,15 @@ func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
 	}
 
 	switch arg.Type {
-	case VariableTypeString, VariableTypeBool:
-		// valid
+	case VariableTypeString:
+		acc.add(validateStringArgConstraints(cmdName, arg.Name, arg))
+	case VariableTypeBool:
+		if arg.MinLength != 0 || arg.MaxLength != 0 || arg.Pattern != "" {
+			acc.add(fmt.Errorf(
+				"command %q argument %q: min_length/max_length/pattern only apply to string arguments",
+				cmdName, arg.Name,
+			))
+		}
 	case "":
 		acc.add(fmt.Errorf("command %q argument %q: type is required (string, boolean)", cmdName, arg.Name))
 	default:
@@ -223,6 +230,20 @@ func validateArgument(cmdName string, idx int, arg ArgumentConfig) error {
 		))
 	}
 
+	return acc.err()
+}
+
+func validateStringArgConstraints(cmdName, argName string, arg *ArgumentConfig) error {
+	acc := &errAccumulator{}
+	if arg.MinLength < 0 {
+		acc.add(fmt.Errorf("command %q argument %q: min_length must not be negative", cmdName, argName))
+	}
+	if arg.MaxLength < 0 {
+		acc.add(fmt.Errorf("command %q argument %q: max_length must not be negative", cmdName, argName))
+	}
+	if arg.MinLength > 0 && arg.MaxLength > 0 && arg.MaxLength < arg.MinLength {
+		acc.add(fmt.Errorf("command %q argument %q: max_length must be >= min_length", cmdName, argName))
+	}
 	return acc.err()
 }
 
