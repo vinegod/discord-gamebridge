@@ -34,6 +34,7 @@ const (
 	ExecutorTypeTmux   ExecutorType = "tmux"
 	ExecutorTypeRcon   ExecutorType = "rcon"
 	ExecutorTypeScript ExecutorType = "script"
+	ExecutorTypeSSH    ExecutorType = "ssh"
 )
 
 const (
@@ -60,6 +61,17 @@ type ExecutorConfig struct {
 
 	// script fields
 	AllowedScriptDir string `yaml:"allowed_script_dir"`
+
+	// ssh fields — host and port are shared with rcon.
+	// Env var values are file paths, so nothing sensitive lives in config.yaml.
+	UserEnv       string `yaml:"user_env"`        // env var whose value is the SSH username
+	KeyEnv        string `yaml:"key_env"`         // env var whose value is a path to PEM private key
+	KnownHostsEnv string `yaml:"known_hosts_env"` // env var whose value is a path to known_hosts file
+
+	// Resolved at load time — not written to config.
+	SSHUser           string `yaml:"-"`
+	SSHKeyFile        string `yaml:"-"`
+	SSHKnownHostsFile string `yaml:"-"`
 }
 
 // LogChannel identifies which Discord channel a log rule routes to.

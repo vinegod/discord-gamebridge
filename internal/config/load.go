@@ -47,12 +47,10 @@ func Load(configPath string) (*Config, error) {
 		cfg.Server.DiscordConsoleWebhookURL = os.Getenv(cfg.Server.DiscordConsoleWebhookEnv)
 	}
 
-	// Resolve RCON passwords from env
-	for name, ex := range cfg.Executors {
-		if ex.Type == ExecutorTypeRcon && ex.PasswordEnv != "" {
-			ex.Password = os.Getenv(ex.PasswordEnv)
-			cfg.Executors[name] = ex
-		}
+	// Resolve executor secrets and apply type-specific defaults
+	for name, ex := range cfg.Executors { //nolint:gocritic // map range copy unavoidable
+		resolveExecutorSecrets(&ex)
+		cfg.Executors[name] = ex
 	}
 
 	// Resolve command types, compile output patterns, and compile argument patterns
@@ -111,6 +109,24 @@ func (c *Config) applyDefaults() {
 		if c.Schedules[i].Timeout == 0 {
 			c.Schedules[i].Timeout = defaultScheduleTimeout
 		}
+	}
+}
+
+func resolveExecutorSecrets(ex *ExecutorConfig) {
+	switch ex.Type {
+	case ExecutorTypeRcon:
+		if ex.PasswordEnv != "" {
+			ex.Password = os.Getenv(ex.PasswordEnv)
+		}
+	case ExecutorTypeSSH:
+		if ex.Port == 0 {
+			ex.Port = 22
+		}
+		ex.SSHUser = os.Getenv(ex.UserEnv)
+		ex.SSHKeyFile = os.Getenv(ex.KeyEnv)
+		ex.SSHKnownHostsFile = os.Getenv(ex.KnownHostsEnv)
+	case ExecutorTypeTmux, ExecutorTypeScript:
+		// nothing to resolve
 	}
 }
 
