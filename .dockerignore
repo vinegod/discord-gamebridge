@@ -1,0 +1,9 @@
+bin/
+dist/
+coverage.out
+profiles/
+*.log
+.env
+config.yaml
+.git
+.pre-commit-config.yaml

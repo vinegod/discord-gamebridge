@@ -14,6 +14,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/vinegod/discordgamebridge/internal/audit"
 	"github.com/vinegod/discordgamebridge/internal/config"
 	"github.com/vinegod/discordgamebridge/internal/executor"
 	"github.com/vinegod/discordgamebridge/internal/version"
@@ -33,7 +34,8 @@ type BotWrapper struct {
 	executors  *executor.Registry
 	ctx        context.Context
 	reloadCh   chan struct{}
-	cooldowns  sync.Map // key: cooldownKey, value: time.Time (expiry)
+	cooldowns  sync.Map   // key: cooldownKey, value: time.Time (expiry)
+	auditLog   *audit.Log // nil when no console channel is configured
 }
 
 func NewBot(
@@ -41,12 +43,14 @@ func NewBot(
 	cfg config.Config, //nolint:gocritic //reason:copy value to new bot once
 	reloadCh chan struct{},
 	reg *executor.Registry,
+	auditLog *audit.Log,
 ) (*BotWrapper, error) {
 	b := &BotWrapper{
 		cfg:       cfg,
 		executors: reg,
 		ctx:       ctx,
 		reloadCh:  reloadCh,
+		auditLog:  auditLog,
 	}
 
 	intents := gateway.IntentGuildMessages
@@ -173,6 +177,13 @@ func (b *BotWrapper) handleExecutorCommand(
 
 	output, err := ex.Send(ctx, command, args...)
 	output = cmdCfg.Output.Apply(output)
+
+	b.auditLog.Record(audit.Entry{
+		UserID:      event.User().ID.String(),
+		DisplayName: event.User().EffectiveName(),
+		Command:     cmdCfg.Name,
+		Success:     err == nil,
+	})
 
 	if deferred {
 		replyDeferred(b.Client, event, output, err)
@@ -306,6 +317,13 @@ func (b *BotWrapper) handleInternalCommand(
 	event *events.ApplicationCommandInteractionCreate,
 	cmdCfg *config.CommandConfig,
 ) {
+	b.auditLog.Record(audit.Entry{
+		UserID:      event.User().ID.String(),
+		DisplayName: event.User().EffectiveName(),
+		Command:     cmdCfg.Name,
+		Success:     true,
+	})
+
 	switch cmdCfg.Name {
 	case "reload":
 		b.executeReload(event)

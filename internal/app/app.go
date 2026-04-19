@@ -10,7 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	disgodiscord "github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/webhook"
+	"github.com/vinegod/discordgamebridge/internal/audit"
 	"github.com/vinegod/discordgamebridge/internal/bot"
 	"github.com/vinegod/discordgamebridge/internal/config"
 	"github.com/vinegod/discordgamebridge/internal/discord"
@@ -18,6 +20,8 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/scheduler"
 	"github.com/vinegod/discordgamebridge/internal/server"
 )
+
+const auditFlushInterval = 30 * time.Second
 
 // App holds top-level application state.
 type App struct {
@@ -105,7 +109,11 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 
 	slog.Info("initializing Discord bot")
 
-	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh, reg)
+	// Create audit log before the bot (bot records into it), but set the flush
+	// function after (flush needs the bot's REST client).
+	auditLog := buildAuditLog(cfg)
+
+	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh, reg, auditLog)
 	if err != nil {
 		reg.CloseAll()
 		return nil, fmt.Errorf("create bot: %w", err)
@@ -122,20 +130,15 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 		return nil, fmt.Errorf("sync commands: %w", err)
 	}
 
-	var sender *discord.Sender
-	if cfg.Server.LogFilePath != "" {
-		sender, err = buildSender(ctx, cfg, discordBot)
-		if err != nil {
-			reg.CloseAll()
-			return nil, fmt.Errorf("build sender: %w", err)
-		}
-		if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
-			reg.CloseAll()
-			return nil, fmt.Errorf("start tailer: %w", err)
-		}
-		slog.Info("log tailer started", "file", cfg.Server.LogFilePath)
-	} else {
-		slog.Info("log_file_path not set, log tailing disabled")
+	if err := startAuditLog(ctx, cfg, discordBot, auditLog); err != nil {
+		reg.CloseAll()
+		return nil, err
+	}
+
+	sender, err := startLogTailing(ctx, cfg, discordBot)
+	if err != nil {
+		reg.CloseAll()
+		return nil, err
 	}
 
 	var sched *scheduler.Scheduler
@@ -150,8 +153,13 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 
 	slog.Info("bot is running — press Ctrl+C to quit")
 
-	cleanup := func() {
+	cleanup := func() { //nolint:contextcheck // intentional: ctx is already cancelled at shutdown; audit flush needs a fresh context
 		slog.Info("shutting down components...")
+		if auditLog != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			auditLog.Stop(stopCtx)
+		}
 		if sched != nil {
 			sched.Stop()
 		}
@@ -163,6 +171,50 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 	}
 
 	return cleanup, nil
+}
+
+// buildAuditLog returns a Log if the console channel is configured, nil otherwise.
+// The flush function is set later (after the bot client is available).
+func buildAuditLog(cfg *config.Config) *audit.Log {
+	if cfg.Server.DiscordConsoleChannelID == "" {
+		return nil
+	}
+	return audit.New(auditFlushInterval, nil)
+}
+
+func startAuditLog(ctx context.Context, cfg *config.Config, discordBot *bot.BotWrapper, auditLog *audit.Log) error {
+	if auditLog == nil {
+		return nil
+	}
+	channelID, err := cfg.Server.ParsedConsoleChannelID()
+	if err != nil {
+		return fmt.Errorf("parse console channel ID for audit log: %w", err)
+	}
+	client := discordBot.Client
+	auditLog.SetFlushFunc(func(fCtx context.Context, msg string) {
+		if _, err := client.Rest.CreateMessage(channelID, disgodiscord.MessageCreate{Content: msg}); err != nil {
+			slog.Warn("audit log flush failed", "error", err)
+		}
+	})
+	auditLog.Start(ctx)
+	slog.Info("command audit log enabled", "interval", auditFlushInterval)
+	return nil
+}
+
+func startLogTailing(ctx context.Context, cfg *config.Config, discordBot *bot.BotWrapper) (*discord.Sender, error) {
+	if cfg.Server.LogFilePath == "" {
+		slog.Info("log_file_path not set, log tailing disabled")
+		return nil, nil
+	}
+	sender, err := buildSender(ctx, cfg, discordBot)
+	if err != nil {
+		return nil, fmt.Errorf("build sender: %w", err)
+	}
+	if err := server.StartTailer(ctx, &cfg.Server, sender); err != nil {
+		return nil, fmt.Errorf("start tailer: %w", err)
+	}
+	slog.Info("log tailer started", "file", cfg.Server.LogFilePath)
+	return sender, nil
 }
 
 // buildRegistry creates an executor for each entry in cfg.Executors.

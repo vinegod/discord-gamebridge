@@ -1,0 +1,16 @@
+services:
+  discord-gamebridge:
+    build: .
+    restart: unless-stopped
+    # network_mode: host gives the bot direct access to services bound to
+    # localhost (RCON on 127.0.0.1, tmux sessions on the host, etc.).
+    # If your game server runs on a separate machine, remove this and expose
+    # only the ports you need.
+    network_mode: host
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      # Mount the game server log file so the tailer can read it.
+      # Adjust the host path to match your server's log location.
+      # - /opt/gameserver/logs/latest.log:/logs/server.log:ro
+    env_file:
+      - .env
