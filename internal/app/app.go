@@ -15,6 +15,7 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/config"
 	"github.com/vinegod/discordgamebridge/internal/discord"
 	"github.com/vinegod/discordgamebridge/internal/executor"
+	"github.com/vinegod/discordgamebridge/internal/scheduler"
 	"github.com/vinegod/discordgamebridge/internal/server"
 )
 
@@ -137,10 +138,23 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 		slog.Info("log_file_path not set, log tailing disabled")
 	}
 
+	var sched *scheduler.Scheduler
+	if len(cfg.Schedules) > 0 {
+		sched, err = scheduler.New(ctx, cfg.Schedules, reg)
+		if err != nil {
+			reg.CloseAll()
+			return nil, fmt.Errorf("build scheduler: %w", err)
+		}
+		slog.Info("scheduler started", "jobs", len(cfg.Schedules))
+	}
+
 	slog.Info("bot is running — press Ctrl+C to quit")
 
 	cleanup := func() {
 		slog.Info("shutting down components...")
+		if sched != nil {
+			sched.Stop()
+		}
 		if sender != nil {
 			sender.Stop()
 		}

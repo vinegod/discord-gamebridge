@@ -106,6 +106,11 @@ func (c *Config) applyDefaults() {
 			c.Commands[i].EphemeralOutput = &v
 		}
 	}
+	for i := range c.Schedules {
+		if c.Schedules[i].Timeout == 0 {
+			c.Schedules[i].Timeout = defaultScheduleTimeout
+		}
+	}
 }
 
 // compileRegex compiles pattern into dest. A blank pattern is a no-op.

@@ -14,6 +14,12 @@ type TmuxExecutor struct {
 	Pane    int
 }
 
+// Healthy returns true if the configured tmux session exists.
+func (e *TmuxExecutor) Healthy(ctx context.Context) bool {
+	cmd := exec.CommandContext(ctx, "tmux", "has-session", "-t", e.Session) // #nosec G204
+	return cmd.Run() == nil
+}
+
 // Send injects command into the configured tmux pane and presses Enter.
 // Uses the two-step send-keys approach (-l for literal text, then C-m for Enter)
 // to prevent shell metacharacters in the command from being interpreted by tmux.
