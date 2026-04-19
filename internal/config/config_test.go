@@ -769,56 +769,56 @@ func TestParsedConsoleChannelID_ErrorContainsFieldName(t *testing.T) {
 
 func TestValidateArgument_Valid_NoError(t *testing.T) {
 	arg := ArgumentConfig{Name: "player", Description: "Target player", Type: VariableTypeString}
-	if err := validateArgument("cmd", 0, arg); err != nil {
+	if err := validateArgument("cmd", 0, &arg); err != nil {
 		t.Errorf("expected no error for valid argument, got: %v", err)
 	}
 }
 
 func TestValidateArgument_EmptyName_ReturnsError(t *testing.T) {
 	arg := ArgumentConfig{Name: "", Description: "desc", Type: VariableTypeString}
-	if err := validateArgument("cmd", 0, arg); err == nil {
+	if err := validateArgument("cmd", 0, &arg); err == nil {
 		t.Error("expected error for empty name, got nil")
 	}
 }
 
 func TestValidateArgument_NameWithWhitespace_ReturnsError(t *testing.T) {
 	arg := ArgumentConfig{Name: "bad name", Description: "desc", Type: VariableTypeString}
-	if err := validateArgument("cmd", 0, arg); err == nil {
+	if err := validateArgument("cmd", 0, &arg); err == nil {
 		t.Error("expected error for name with whitespace, got nil")
 	}
 }
 
 func TestValidateArgument_EmptyDescription_ReturnsError(t *testing.T) {
 	arg := ArgumentConfig{Name: "player", Description: "", Type: VariableTypeString}
-	if err := validateArgument("cmd", 0, arg); err == nil {
+	if err := validateArgument("cmd", 0, &arg); err == nil {
 		t.Error("expected error for empty description, got nil")
 	}
 }
 
 func TestValidateArgument_DescriptionTooLong_ReturnsError(t *testing.T) {
 	arg := ArgumentConfig{Name: "player", Description: strings.Repeat("x", 101), Type: VariableTypeString}
-	if err := validateArgument("cmd", 0, arg); err == nil {
+	if err := validateArgument("cmd", 0, &arg); err == nil {
 		t.Error("expected error for description over 100 chars, got nil")
 	}
 }
 
 func TestValidateArgument_EmptyType_ReturnsError(t *testing.T) {
 	arg := ArgumentConfig{Name: "player", Description: "desc", Type: ""}
-	if err := validateArgument("cmd", 0, arg); err == nil {
+	if err := validateArgument("cmd", 0, &arg); err == nil {
 		t.Error("expected error for empty type, got nil")
 	}
 }
 
 func TestValidateArgument_UnknownType_ReturnsError(t *testing.T) {
 	arg := ArgumentConfig{Name: "player", Description: "desc", Type: "integer"}
-	if err := validateArgument("cmd", 0, arg); err == nil {
+	if err := validateArgument("cmd", 0, &arg); err == nil {
 		t.Error("expected error for unknown type, got nil")
 	}
 }
 
 func TestValidateArgument_BoolType_Valid(t *testing.T) {
 	arg := ArgumentConfig{Name: "flag", Description: "Enable feature", Type: VariableTypeBool}
-	if err := validateArgument("cmd", 0, arg); err != nil {
+	if err := validateArgument("cmd", 0, &arg); err != nil {
 		t.Errorf("expected no error for bool type, got: %v", err)
 	}
 }

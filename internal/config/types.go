@@ -190,6 +190,30 @@ type ArgumentConfig struct {
 	Type        VariableType `yaml:"type"`
 	Description string       `yaml:"description"`
 	Required    bool         `yaml:"required"`
+
+	// Constraints — only meaningful for string-type arguments.
+	// MinLength/MaxLength of 0 means no limit. Pattern is a Go regex.
+	MinLength int    `yaml:"min_length"`
+	MaxLength int    `yaml:"max_length"`
+	Pattern   string `yaml:"pattern"`
+
+	CompiledPattern *regexp.Regexp `yaml:"-"`
+}
+
+// ValidateValue checks s against the argument's constraints.
+// Returns a user-facing error message on violation, nil otherwise.
+func (a *ArgumentConfig) ValidateValue(s string) error {
+	n := len([]rune(s))
+	if a.MinLength > 0 && n < a.MinLength {
+		return fmt.Errorf("argument `%s` must be at least %d character(s) (got %d)", a.Name, a.MinLength, n)
+	}
+	if a.MaxLength > 0 && n > a.MaxLength {
+		return fmt.Errorf("argument `%s` must be at most %d character(s) (got %d)", a.Name, a.MaxLength, n)
+	}
+	if a.CompiledPattern != nil && !a.CompiledPattern.MatchString(s) {
+		return fmt.Errorf("argument `%s` does not match the required format (`%s`)", a.Name, a.Pattern)
+	}
+	return nil
 }
 
 // OutputConfig defines optional post-processing for executor output.
