@@ -93,6 +93,17 @@ executors:
     type: "script"
     allowed_script_dir: "/home/user/terraria_server/scripts"
 
+  #SSH executor — runs commands on a remote host.
+  #All sensitive values (user, key path, known_hosts path) come from .env,
+  #not from this file. The env var values are file paths, not file contents.
+  remote:
+    type: "ssh"
+    host: "gameserver.example.com"
+    port: 22                          # optional, defaults to 22
+    user_env: "SSH_USER"              # .env: SSH_USER=gameadmin
+    key_env: "SSH_KEY_FILE"           # .env: SSH_KEY_FILE=/secrets/id_ed25519
+    known_hosts_env: "SSH_KNOWN_HOSTS_FILE" # .env: SSH_KNOWN_HOSTS_FILE=/secrets/known_hosts
+
 # Command registry
 commands:
   - name: "kick"
