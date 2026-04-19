@@ -109,6 +109,13 @@ func (e *RconExecutor) Send(ctx context.Context, command string, _ ...string) (s
 	return "", fmt.Errorf("RCON send failed after %d attempts: %w", rconMaxRetries, lastErr)
 }
 
+// Healthy returns true if there is an active RCON connection.
+func (e *RconExecutor) Healthy(_ context.Context) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.conn != nil
+}
+
 // Close closes the underlying RCON connection.
 func (e *RconExecutor) Close() error {
 	e.mu.Lock()

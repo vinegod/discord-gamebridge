@@ -17,6 +17,7 @@ type Config struct {
 	Executors map[string]ExecutorConfig `yaml:"executors"`
 	Server    ServerConfig              `yaml:"server"`
 	Commands  []CommandConfig           `yaml:"commands"`
+	Schedules []ScheduleConfig          `yaml:"schedules"`
 }
 
 // BotConfig holds Discord bot credentials.
@@ -36,8 +37,9 @@ const (
 )
 
 const (
-	defaultChatTimeout    = 5 * time.Second
-	defaultCommandTimeout = 10 * time.Second
+	defaultChatTimeout     = 5 * time.Second
+	defaultCommandTimeout  = 10 * time.Second
+	defaultScheduleTimeout = 30 * time.Second
 )
 
 // ExecutorConfig describes a named executor entry in config.yaml.
@@ -158,6 +160,16 @@ type CommandConfig struct {
 	Output *OutputConfig `yaml:"output"`
 }
 
+// ScheduleConfig defines a recurring task fired on a cron expression.
+type ScheduleConfig struct {
+	Name       string        `yaml:"name"`
+	Cron       string        `yaml:"cron"`
+	Executor   string        `yaml:"executor"`
+	Command    string        `yaml:"command"`
+	Timeout    time.Duration `yaml:"timeout"`
+	SkipIfDown bool          `yaml:"skip_if_down"`
+}
+
 // PermissionConfig defines access control lists for a command.
 type PermissionConfig struct {
 	AllowedRoles []string `yaml:"allowed_roles"`
@@ -226,6 +238,9 @@ func (c *Config) ReferencedExecutorNames() []string {
 	add(c.Server.ChatExecutor)
 	for idx := range c.Commands {
 		add(c.Commands[idx].ExecutorName)
+	}
+	for idx := range c.Schedules {
+		add(c.Schedules[idx].Executor)
 	}
 	return names
 }

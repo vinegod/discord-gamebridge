@@ -162,3 +162,19 @@ commands:
     type: "internal"
     permissions:
       allowed_roles: ["@everyone"]
+
+# Scheduled jobs — fired on a cron expression, independent of Discord commands.
+# Missed firings on bot restart are not replayed.
+schedules:
+  - name: "auto_save"
+    cron: "*/10 * * * *"   # every 10 minutes
+    executor: "tmux"
+    command: "save"
+    skip_if_down: true      # silently skip if tmux session is gone
+
+  - name: "daily_backup"
+    cron: "0 3 * * *"      # 3am every day
+    executor: "scripts"
+    command: "backup.sh"
+    timeout: 120s
+    # skip_if_down omitted — script executor has no health check, always runs

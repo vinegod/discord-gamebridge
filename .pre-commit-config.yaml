@@ -15,7 +15,7 @@ repos:
     hooks:
       - id: go-mod-tidy
       - id: go-cyclo
-        args: [-over=20]
+        args: [-over=15]
       - id: no-go-testing
       - id: golangci-lint
       - id: go-build

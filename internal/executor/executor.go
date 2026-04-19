@@ -21,3 +21,10 @@ type LifecycleExecutor interface {
 	Executor
 	Close() error
 }
+
+// HealthChecker is optionally implemented by executors that can report
+// whether the target server is currently reachable. Used by the scheduler
+// to skip jobs when skip_if_down is true.
+type HealthChecker interface {
+	Healthy(ctx context.Context) bool
+}

@@ -9,43 +9,60 @@ import (
 // Validate checks the loaded configuration for semantic errors and logs
 // feature status. Returns an error if any required fields are missing or
 // invalid - the application should not start with a failed Validate.
-func (c *Config) Validate() error { //nolint:gocognit,gocyclo // validation is inherently branchy; extracting helpers would obscure the intent
+func (c *Config) Validate() error {
 	slog.Info("validating configuration")
 
-	// Feature status logging
-	if c.Server.LogFilePath != "" {
-		slog.Info("log tailing enabled", "file", c.Server.LogFilePath)
+	if err := logFeatureStatus(&c.Server); err != nil {
+		return err
+	}
+
+	acc := &errAccumulator{}
+	acc.add(validateLogRules(c.Server.LogRules))
+	acc.add(validateSchedules(c.Schedules))
+	for name, ex := range c.Executors {
+		acc.add(validateExecutor(name, &ex))
+	}
+	acc.add(validateCommands(c.Commands))
+
+	return acc.err()
+}
+
+func logFeatureStatus(s *ServerConfig) error {
+	if s.LogFilePath != "" {
+		slog.Info("log tailing enabled", "file", s.LogFilePath)
 	} else {
 		slog.Info("log tailing disabled - log_file_path not set")
 	}
 
-	if c.Server.ChatTemplate != "" {
-		if c.Server.ChatExecutor == "" {
+	if s.ChatTemplate != "" {
+		if s.ChatExecutor == "" {
 			return fmt.Errorf("chat_template is set but chat_executor is missing")
 		}
-		slog.Info("Discord->Game chat enabled", "executor", c.Server.ChatExecutor)
+		slog.Info("Discord->Game chat enabled", "executor", s.ChatExecutor)
 	} else {
 		slog.Warn("Discord->Game chat disabled - chat_template not set")
 	}
 
-	if c.Server.DiscordChatChannelID != "" {
-		slog.Info("Game->Discord forwarding enabled", "channel", c.Server.DiscordChatChannelID)
+	if s.DiscordChatChannelID != "" {
+		slog.Info("Game->Discord forwarding enabled", "channel", s.DiscordChatChannelID)
 	} else {
 		slog.Warn("Game->Discord forwarding disabled - discord_chat_channel_id not set")
 	}
 
-	if c.Server.DiscordWebhookURL == "" && c.Server.DiscordChatChannelID != "" {
+	if s.DiscordWebhookURL == "" && s.DiscordChatChannelID != "" {
 		slog.Warn("no webhook URL - messages will appear from bot account, not player names")
 	}
 
-	if c.Server.DiscordConsoleChannelID != "" {
-		slog.Info("log channel enabled", "channel", c.Server.DiscordConsoleChannelID)
+	if s.DiscordConsoleChannelID != "" {
+		slog.Info("log channel enabled", "channel", s.DiscordConsoleChannelID)
 	}
 
-	acc := &errAccumulator{}
+	return nil
+}
 
-	// Validate log rules
-	for i, rule := range c.Server.LogRules {
+func validateLogRules(rules []LogRuleConfig) error {
+	acc := &errAccumulator{}
+	for i, rule := range rules {
 		label := rule.Name
 		if label == "" {
 			label = fmt.Sprintf("index %d", i)
@@ -64,27 +81,48 @@ func (c *Config) Validate() error { //nolint:gocognit,gocyclo // validation is i
 			}
 		}
 	}
+	return acc.err()
+}
 
-	// Validate executors
-	for name, ex := range c.Executors {
-		acc.add(validateExecutor(name, &ex))
-	}
-
-	// Validate commands
-	if len(c.Commands) > 0 {
-		slog.Info("validating commands", "count", len(c.Commands))
-		names := make(map[string]struct{}, len(c.Commands))
-		for idx := range c.Commands {
-			if _, duplicate := names[c.Commands[idx].Name]; duplicate {
-				acc.add(fmt.Errorf("duplicate command name %q", c.Commands[idx].Name))
-			}
-			names[c.Commands[idx].Name] = struct{}{}
-			acc.add(validateCommand(&c.Commands[idx]))
+func validateSchedules(schedules []ScheduleConfig) error {
+	acc := &errAccumulator{}
+	for i, sched := range schedules {
+		label := sched.Name
+		if label == "" {
+			label = fmt.Sprintf("index %d", i)
 		}
-	} else {
+		if sched.Cron == "" {
+			acc.add(fmt.Errorf("schedules[%d] %q: cron is required", i, label))
+		}
+		if sched.Executor == "" {
+			acc.add(fmt.Errorf("schedules[%d] %q: executor is required", i, label))
+		}
+		if sched.Command == "" {
+			acc.add(fmt.Errorf("schedules[%d] %q: command is required", i, label))
+		}
+		if sched.Timeout < 0 {
+			acc.add(fmt.Errorf("schedules[%d] %q: timeout must not be negative", i, label))
+		}
+	}
+	return acc.err()
+}
+
+func validateCommands(commands []CommandConfig) error {
+	if len(commands) == 0 {
 		slog.Info("commands disabled - none configured")
+		return nil
 	}
 
+	slog.Info("validating commands", "count", len(commands))
+	acc := &errAccumulator{}
+	names := make(map[string]struct{}, len(commands))
+	for idx := range commands {
+		if _, duplicate := names[commands[idx].Name]; duplicate {
+			acc.add(fmt.Errorf("duplicate command name %q", commands[idx].Name))
+		}
+		names[commands[idx].Name] = struct{}{}
+		acc.add(validateCommand(&commands[idx]))
+	}
 	return acc.err()
 }
 
