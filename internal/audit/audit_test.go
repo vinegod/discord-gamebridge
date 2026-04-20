@@ -91,18 +91,18 @@ func TestStop_FlushesRemainingEntries(t *testing.T) {
 func TestFlushInterval_FiresPeriodically(t *testing.T) {
 	var mu sync.Mutex
 	flushCount := 0
-	l := New(50*time.Millisecond, func(_ context.Context, _ string) {
+	l := New(30*time.Millisecond, func(_ context.Context, _ string) {
 		mu.Lock()
 		flushCount++
 		mu.Unlock()
 	})
 	l.Start(context.Background())
 
-	for range 3 {
+	// Feed one record per tick so each flush window has something to send.
+	for range 4 {
 		l.Record(Entry{UserID: "1", DisplayName: "Alice", Command: "ping", Success: true})
+		time.Sleep(35 * time.Millisecond)
 	}
-
-	time.Sleep(200 * time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -110,8 +110,9 @@ func TestFlushInterval_FiresPeriodically(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if flushCount < 1 {
-		t.Errorf("expected at least 1 periodic flush, got %d", flushCount)
+	// 4 records fed across ~140ms with a 30ms interval → expect at least 3 flushes.
+	if flushCount < 3 {
+		t.Errorf("expected at least 3 periodic flushes, got %d", flushCount)
 	}
 }
 

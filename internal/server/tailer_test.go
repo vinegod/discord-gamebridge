@@ -324,3 +324,36 @@ func TestProcessLogLine_FirstMatchWins_OnlyOneMessageSent(t *testing.T) {
 		t.Errorf("only one message should be sent even if multiple rules could match, got %d", sender.count())
 	}
 }
+
+func TestProcessLogLine_IgnoreRuleFirst_ShortCircuitsAllLaterRules(t *testing.T) {
+	// An ignore rule at position 0 must suppress the line even if a later
+	// non-ignore rule would also match.
+	cfg := &config.ServerConfig{
+		LogRules: []config.LogRuleConfig{
+			ignoreRule("suppress", `^<Server>.*`),
+			rule("chat", `^<(?P<player>[^>]+)> (?P<msg>.*)$`, "{{.player}}", "{{.msg}}", config.LogChannelChat),
+		},
+	}
+	sender := &captureSender{}
+	processLogLine("<Server> system message", cfg, sender)
+
+	if sender.count() != 0 {
+		t.Errorf("ignore rule should suppress all subsequent rules, got %d messages", sender.count())
+	}
+}
+
+func TestProcessLogLine_IgnoreRule_DoesNotSuppressNonMatchingLines(t *testing.T) {
+	// An ignore rule must only suppress lines it actually matches.
+	cfg := &config.ServerConfig{
+		LogRules: []config.LogRuleConfig{
+			ignoreRule("suppress_server", `^<Server>.*`),
+			rule("chat", `^<(?P<player>[^>]+)> (?P<msg>.*)$`, "{{.player}}", "{{.msg}}", config.LogChannelChat),
+		},
+	}
+	sender := &captureSender{}
+	processLogLine("<Alice> hello world", cfg, sender)
+
+	if sender.count() != 1 {
+		t.Errorf("non-matching ignore rule should not suppress other lines, got %d messages", sender.count())
+	}
+}
