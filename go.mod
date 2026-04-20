@@ -12,6 +12,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+require go.etcd.io/bbolt v1.4.3
+
 require (
 	github.com/disgoorg/godave v0.0.0-20260211222359-4ef3e359a3af // indirect
 	github.com/disgoorg/json/v2 v2.0.0 // indirect

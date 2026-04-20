@@ -48,6 +48,11 @@ func (b *BotWrapper) onMessageCreate(event *events.MessageCreate) {
 
 	if _, err := ex.Send(ctx, gameCommand); err != nil {
 		slog.Error("failed to send chat to game", "executor", b.cfg.Server.ChatExecutor, "error", err)
+		msgID := event.Message.ID
+		_, _ = b.Client.Rest.CreateMessage(event.Message.ChannelID, discord.MessageCreate{
+			Content:          "⚠️ Your message could not be delivered to the game server.",
+			MessageReference: &discord.MessageReference{MessageID: &msgID},
+		})
 	}
 }
 
