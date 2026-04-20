@@ -74,7 +74,8 @@ func (e *SSHExecutor) Send(ctx context.Context, command string, args ...string) 
 
 	select {
 	case <-ctx.Done():
-		_ = client.Close()
+		_ = client.Close() // interrupt CombinedOutput in the goroutine
+		<-done             // wait for goroutine to exit before defers run
 		return "", fmt.Errorf("SSH command timed out: %w", ctx.Err())
 	case res := <-done:
 		if res.err != nil {

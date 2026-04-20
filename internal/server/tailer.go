@@ -15,7 +15,55 @@ import (
 // StartTailer begins tailing the server's log file and routes parsed
 // lines to the appropriate Discord channel via the provided sender.
 func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender discord.MessageSender) error {
-	t, err := tail.TailFile(serverCfg.LogFilePath, tail.Config{
+	t, err := openTail(serverCfg.LogFilePath)
+	if err != nil {
+		return err
+	}
+
+	go runTailer(ctx, t, serverCfg, sender)
+
+	return nil
+}
+
+func runTailer(ctx context.Context, t *tail.Tail, serverCfg *config.ServerConfig, sender discord.MessageSender) {
+	lines := t.Lines
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("[tailer] stopping", "file", serverCfg.LogFilePath)
+			if err := t.Stop(); err != nil {
+				slog.Error("[tailer] stop failed", "error", err)
+			}
+			return
+		case line, ok := <-lines:
+			if !ok {
+				t, lines = reopenTail(t, serverCfg.LogFilePath)
+				if t == nil {
+					return
+				}
+				continue
+			}
+			if line == nil || line.Err != nil {
+				continue
+			}
+			processLogLine(line.Text, serverCfg, sender)
+		}
+	}
+}
+
+func reopenTail(old *tail.Tail, path string) (t *tail.Tail, lines chan *tail.Line) {
+	slog.Warn("[tailer] channel closed unexpectedly, reopening", "file", path, "reason", old.Err())
+	_ = old.Stop()
+	newT, err := openTail(path)
+	if err != nil {
+		slog.Error("[tailer] reopen failed, stopping", "file", path, "error", err)
+		return nil, nil
+	}
+	return newT, newT.Lines
+}
+
+func openTail(path string) (*tail.Tail, error) {
+	t, err := tail.TailFile(path, tail.Config{
 		Follow:   true,
 		ReOpen:   true,
 		Poll:     true,
@@ -23,36 +71,9 @@ func StartTailer(ctx context.Context, serverCfg *config.ServerConfig, sender dis
 		Logger:   tail.DiscardingLogger,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to tail log file %s: %w", serverCfg.LogFilePath, err)
+		return nil, fmt.Errorf("failed to tail log file %s: %w", path, err)
 	}
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				slog.Info("[tailer] stopping", "file", serverCfg.LogFilePath)
-				if err := t.Stop(); err != nil {
-					slog.Error("Failed to stop tailer.", "Error", err)
-				}
-				return
-
-			case line, ok := <-t.Lines:
-				if !ok {
-					slog.Error("[tailer] tail channel closed",
-						"file", serverCfg.LogFilePath,
-						"reason", t.Err(),
-					)
-					return
-				}
-				if line == nil || line.Err != nil {
-					continue
-				}
-				processLogLine(line.Text, serverCfg, sender)
-			}
-		}
-	}()
-
-	return nil
+	return t, nil
 }
 
 // processLogLine evaluates the log rules in order and forwards the first

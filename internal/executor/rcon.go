@@ -56,8 +56,9 @@ func (e *RconExecutor) executeWithContext(ctx context.Context, command string) (
 	select {
 	case <-ctx.Done():
 		slog.Warn("RCON timed out, dropping connection", "address", e.address)
-		_ = e.conn.Close()
+		_ = conn.Close() // use captured pointer; interrupts conn.Execute in the goroutine
 		e.conn = nil
+		<-ch // wait for the goroutine to exit before returning
 		return "", fmt.Errorf("timeout: %w", ctx.Err())
 	case res := <-ch:
 		return res.resp, res.err
@@ -127,7 +128,10 @@ func (e *RconExecutor) Close() error {
 
 	err := e.conn.Close()
 	e.conn = nil
-	return fmt.Errorf("failed to close rcon: %w", err)
+	if err != nil {
+		return fmt.Errorf("failed to close rcon: %w", err)
+	}
+	return nil
 }
 
 // connect establishes a new RCON connection. Must be called with e.mu held.
