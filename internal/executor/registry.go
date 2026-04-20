@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 )
 
@@ -46,7 +47,7 @@ func (r *Registry) CloseAll() {
 	for name, e := range r.executors {
 		if lc, ok := e.(LifecycleExecutor); ok {
 			if err := lc.Close(); err != nil {
-				_ = fmt.Errorf("executor %q close: %w", name, err)
+				slog.Error("executor close failed", "name", name, "error", err)
 			}
 		}
 	}

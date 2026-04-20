@@ -90,7 +90,7 @@ func (a *App) LoadConfiguration() (*config.Config, error) {
 }
 
 // Start initializes all components and returns a cleanup function.
-func (a *App) Start(ctx context.Context) (func(), error) {
+func (a *App) Start(ctx context.Context) (_ func(), err error) {
 	cfg, err := a.LoadConfiguration()
 	if err != nil {
 		return nil, err
@@ -115,6 +115,13 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 	auditLog := buildAuditLog(cfg)
 
 	cooldownStore := openCooldownStore()
+	defer func() {
+		if err != nil {
+			if closeErr := cooldownStore.Close(); closeErr != nil {
+				slog.Warn("cooldown store close on init failure", "error", closeErr)
+			}
+		}
+	}()
 
 	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh, reg, auditLog, cooldownStore)
 	if err != nil {
@@ -122,15 +129,9 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 		return nil, fmt.Errorf("create bot: %w", err)
 	}
 
-	if err := discordBot.Client.OpenGateway(ctx); err != nil {
+	if err := connectBot(ctx, discordBot); err != nil {
 		reg.CloseAll()
-		return nil, fmt.Errorf("open gateway: %w", err)
-	}
-	slog.Info("connected to Discord gateway")
-
-	if err := discordBot.SyncCommands(); err != nil {
-		reg.CloseAll()
-		return nil, fmt.Errorf("sync commands: %w", err)
+		return nil, err
 	}
 
 	if err := startAuditLog(ctx, cfg, discordBot, auditLog); err != nil {
@@ -144,19 +145,26 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 		return nil, err
 	}
 
-	var sched *scheduler.Scheduler
-	if len(cfg.Schedules) > 0 {
-		sched, err = scheduler.New(ctx, cfg.Schedules, reg)
-		if err != nil {
-			reg.CloseAll()
-			return nil, fmt.Errorf("build scheduler: %w", err)
-		}
-		slog.Info("scheduler started", "jobs", len(cfg.Schedules))
+	sched, err := startScheduler(ctx, cfg, reg)
+	if err != nil {
+		reg.CloseAll()
+		return nil, err
 	}
 
 	slog.Info("bot is running — press Ctrl+C to quit")
+	//nolint:contextcheck // intentional: run ctx is cancelled at shutdown; audit flush needs a fresh context
+	return buildCleanup(auditLog, sched, sender, cooldownStore, reg), nil
+}
 
-	cleanup := func() { //nolint:contextcheck // intentional: ctx is already cancelled at shutdown; audit flush needs a fresh context
+// buildCleanup returns a function that shuts down all running components in order.
+func buildCleanup(
+	auditLog *audit.Log,
+	sched *scheduler.Scheduler,
+	sender *discord.Sender,
+	cooldownStore *cooldown.Store,
+	reg *executor.Registry,
+) func() {
+	return func() {
 		slog.Info("shutting down components...")
 		if auditLog != nil {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -175,8 +183,6 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 		reg.CloseAll()
 		slog.Info("cleanup complete")
 	}
-
-	return cleanup, nil
 }
 
 // openCooldownStore opens the persistent cooldown database. On failure it logs a warning
@@ -194,6 +200,29 @@ func openCooldownStore() *cooldown.Store {
 	}
 	slog.Info("cooldown store opened", "path", path)
 	return store
+}
+
+func startScheduler(ctx context.Context, cfg *config.Config, reg *executor.Registry) (*scheduler.Scheduler, error) {
+	if len(cfg.Schedules) == 0 {
+		return nil, nil
+	}
+	sched, err := scheduler.New(ctx, cfg.Schedules, reg)
+	if err != nil {
+		return nil, fmt.Errorf("build scheduler: %w", err)
+	}
+	slog.Info("scheduler started", "jobs", len(cfg.Schedules))
+	return sched, nil
+}
+
+func connectBot(ctx context.Context, discordBot *bot.BotWrapper) error {
+	if err := discordBot.Client.OpenGateway(ctx); err != nil {
+		return fmt.Errorf("open gateway: %w", err)
+	}
+	slog.Info("connected to Discord gateway")
+	if err := discordBot.SyncCommands(); err != nil {
+		return fmt.Errorf("sync commands: %w", err)
+	}
+	return nil
 }
 
 // buildAuditLog returns a Log if the console channel is configured, nil otherwise.
