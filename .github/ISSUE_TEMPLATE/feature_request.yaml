@@ -1,0 +1,42 @@
+name: Feature Request
+description: Suggest an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case. What can you not do today?
+      placeholder: "There is no way to limit how often a user can run /restart..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work? Config snippet, command name, or behaviour description.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Did you find a workaround? Why is it not good enough?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Executors (tmux / rcon / script / ssh)
+        - Commands & permissions
+        - Log rules & forwarding
+        - Scheduler
+        - Config & validation
+        - Discord integration
+        - Deployment / Docker
+        - Other
+    validations:
+      required: true

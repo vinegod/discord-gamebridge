@@ -1,0 +1,71 @@
+name: Bug Report
+description: Something is not working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before reporting, check that you are on the **latest release** and that the issue is not already listed.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: "When I run /kick, the bot responds with..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: "The player should be kicked and I should see a confirmation."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Configure executor type: tmux
+        2. Run /kick with player name "..."
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config (sanitized)
+      description: Paste the relevant parts of your config.yaml. Remove tokens, passwords, and IDs.
+      render: yaml
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Bot logs
+      description: Paste log output around the time of the issue.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "v1.0.0 or commit hash"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: executor
+    attributes:
+      label: Executor type
+      options:
+        - tmux
+        - rcon
+        - script
+        - ssh
+        - not applicable
+    validations:
+      required: true
