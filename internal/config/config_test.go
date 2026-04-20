@@ -991,3 +991,101 @@ func TestOutputConfig_Apply_FormatMissingGroupRef_ReturnsPartial(t *testing.T) {
 		t.Logf("got %q - verify this is acceptable for your use case", got)
 	}
 }
+
+// ── ArgumentConfig.ValidateValue ─────────────────────────────────────────────
+
+func TestValidateValue_NoConstraints_AlwaysValid(t *testing.T) {
+	arg := &ArgumentConfig{Name: "msg", Type: VariableTypeString}
+	if err := arg.ValidateValue("anything goes"); err != nil {
+		t.Errorf("no constraints should always pass, got: %v", err)
+	}
+}
+
+func TestValidateValue_MinLength_BelowMin_ReturnsError(t *testing.T) {
+	arg := &ArgumentConfig{Name: "player", MinLength: 3}
+	if err := arg.ValidateValue("ab"); err == nil {
+		t.Error("expected error for value shorter than MinLength")
+	}
+}
+
+func TestValidateValue_MinLength_AtMin_Valid(t *testing.T) {
+	arg := &ArgumentConfig{Name: "player", MinLength: 3}
+	if err := arg.ValidateValue("abc"); err != nil {
+		t.Errorf("value at MinLength should be valid, got: %v", err)
+	}
+}
+
+func TestValidateValue_MaxLength_AboveMax_ReturnsError(t *testing.T) {
+	arg := &ArgumentConfig{Name: "msg", MaxLength: 5}
+	if err := arg.ValidateValue("toolong"); err == nil {
+		t.Error("expected error for value longer than MaxLength")
+	}
+}
+
+func TestValidateValue_MaxLength_AtMax_Valid(t *testing.T) {
+	arg := &ArgumentConfig{Name: "msg", MaxLength: 5}
+	if err := arg.ValidateValue("exact"); err != nil {
+		t.Errorf("value at MaxLength should be valid, got: %v", err)
+	}
+}
+
+func TestValidateValue_Pattern_NoMatch_ReturnsError(t *testing.T) {
+	arg := &ArgumentConfig{
+		Name:            "code",
+		Pattern:         `^\d{4}$`,
+		CompiledPattern: mustCompile(`^\d{4}$`),
+	}
+	if err := arg.ValidateValue("abcd"); err == nil {
+		t.Error("expected error when value does not match pattern")
+	}
+}
+
+func TestValidateValue_Pattern_Match_Valid(t *testing.T) {
+	arg := &ArgumentConfig{
+		Name:            "code",
+		Pattern:         `^\d{4}$`,
+		CompiledPattern: mustCompile(`^\d{4}$`),
+	}
+	if err := arg.ValidateValue("1234"); err != nil {
+		t.Errorf("matching value should be valid, got: %v", err)
+	}
+}
+
+func TestValidateValue_ErrorMentionsArgName(t *testing.T) {
+	arg := &ArgumentConfig{Name: "myarg", MinLength: 10}
+	err := arg.ValidateValue("short")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "myarg") {
+		t.Errorf("error should mention argument name, got: %v", err)
+	}
+}
+
+func TestValidateValue_UnicodeLength_CountsRunes(t *testing.T) {
+	// "日本語" is 3 runes but 9 bytes — MaxLength should use rune count.
+	arg := &ArgumentConfig{Name: "text", MinLength: 3, MaxLength: 3}
+	if err := arg.ValidateValue("日本語"); err != nil {
+		t.Errorf("3-rune unicode string should satisfy MinLength=MaxLength=3, got: %v", err)
+	}
+}
+
+// ── validateLogRule: non-ignore rule without message ─────────────────────────
+
+func TestValidateLogRules_NonIgnore_EmptyMessage_ReturnsError(t *testing.T) {
+	rules := []LogRuleConfig{
+		{Name: "bad", Regex: `.*`, Message: "", Ignore: false},
+	}
+	if err := validateLogRules(rules); err == nil {
+		t.Error("expected error for non-ignore rule with empty message")
+	}
+}
+
+func TestValidateLogRules_IgnoreRule_EmptyMessage_Valid(t *testing.T) {
+	rules := []LogRuleConfig{
+		{Name: "drop", Regex: `.*`, Message: "", Ignore: true},
+	}
+	if err := validateLogRules(rules); err != nil {
+		t.Errorf("ignore rule with empty message should be valid, got: %v", err)
+	}
+}

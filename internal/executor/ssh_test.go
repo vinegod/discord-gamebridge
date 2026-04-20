@@ -48,3 +48,44 @@ func TestNewSSHExecutor_MissingKeyFile(t *testing.T) {
 		t.Error("expected error for missing key file, got nil")
 	}
 }
+
+// ── shellQuote injection safety ───────────────────────────────────────────────
+
+func TestShellQuote_SemicolonInjection_IsContained(t *testing.T) {
+	// A semicolon in an arg must not allow a second command to execute.
+	// After quoting, the semicolon must appear inside single quotes.
+	got := shellQuote("; rm -rf /")
+	if strings.Contains(got, "; rm") && !strings.HasPrefix(got, "'") {
+		t.Errorf("semicolon injection not properly quoted: %q", got)
+	}
+	// The whole thing must be wrapped in single quotes.
+	if !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
+		t.Errorf("expected single-quoted result, got %q", got)
+	}
+}
+
+func TestShellQuote_BacktickInjection_IsContained(t *testing.T) {
+	got := shellQuote("`whoami`")
+	if !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
+		t.Errorf("backtick injection not properly quoted: %q", got)
+	}
+}
+
+func TestShellQuote_DollarExpansion_IsContained(t *testing.T) {
+	got := shellQuote("$(cat /etc/passwd)")
+	if !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
+		t.Errorf("dollar expansion not properly quoted: %q", got)
+	}
+}
+
+func TestShellJoin_AllArgsQuoted(t *testing.T) {
+	// Every argument, including those with metacharacters, must be quoted.
+	args := []string{"safe", "with space", "semi;colon", "dollar$var", "back`tick`"}
+	got := shellJoin("cmd", args)
+	for _, arg := range args {
+		quoted := "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
+		if !strings.Contains(got, quoted) {
+			t.Errorf("arg %q not properly quoted in: %q", arg, got)
+		}
+	}
+}
