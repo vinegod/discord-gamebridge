@@ -24,7 +24,7 @@ The following are **out of scope**:
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Use GitHub's [private vulnerability reporting](https://github.com/vinegod/discordgamebridge/security/advisories/new) to submit a report. Include:
+Use GitHub's [private vulnerability reporting](https://github.com/vinegod/discord-gamebridge/security/advisories/new) to submit a report. Include:
 
 1. A description of the vulnerability and its impact
 2. Steps to reproduce (config snippet, input, or request)
