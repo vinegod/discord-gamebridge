@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/disgoorg/disgo"
@@ -16,15 +16,10 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/vinegod/discordgamebridge/internal/audit"
 	"github.com/vinegod/discordgamebridge/internal/config"
+	"github.com/vinegod/discordgamebridge/internal/cooldown"
 	"github.com/vinegod/discordgamebridge/internal/executor"
 	"github.com/vinegod/discordgamebridge/internal/version"
 )
-
-// cooldownKey identifies a (user, command) pair for per-user cooldown tracking.
-type cooldownKey struct {
-	command string
-	userID  string
-}
 
 // BotWrapper encapsulates the Discord client and handles slash command routing and execution.
 type BotWrapper struct {
@@ -34,8 +29,8 @@ type BotWrapper struct {
 	executors  *executor.Registry
 	ctx        context.Context
 	reloadCh   chan struct{}
-	cooldowns  sync.Map   // key: cooldownKey, value: time.Time (expiry)
-	auditLog   *audit.Log // nil when no console channel is configured
+	cooldowns  *cooldown.Store // nil-safe; persists across restarts via bbolt
+	auditLog   *audit.Log      // nil when no console channel is configured
 }
 
 func NewBot(
@@ -44,6 +39,7 @@ func NewBot(
 	reloadCh chan struct{},
 	reg *executor.Registry,
 	auditLog *audit.Log,
+	store *cooldown.Store,
 ) (*BotWrapper, error) {
 	b := &BotWrapper{
 		cfg:       cfg,
@@ -51,6 +47,7 @@ func NewBot(
 		ctx:       ctx,
 		reloadCh:  reloadCh,
 		auditLog:  auditLog,
+		cooldowns: store,
 	}
 
 	intents := gateway.IntentGuildMessages
@@ -98,18 +95,15 @@ func (b *BotWrapper) onApplicationCommand(event *events.ApplicationCommandIntera
 	}
 
 	if cmdCfg.Cooldown > 0 {
-		key := cooldownKey{command: cmdCfg.Name, userID: event.User().ID.String()}
-		if exp, ok := b.cooldowns.Load(key); ok {
-			if remaining := time.Until(exp.(time.Time)); remaining > 0 {
-				replyEphemeral(event, fmt.Sprintf(
-					"⏳ Please wait %s before using `/%s` again.",
-					remaining.Round(time.Second), cmdCfg.Name,
-				))
-				return
-			}
-			b.cooldowns.Delete(key)
+		userID := event.User().ID.String()
+		if remaining, ok := b.cooldowns.Check(cmdCfg.Name, userID); ok {
+			replyEphemeral(event, fmt.Sprintf(
+				"⏳ Please wait %s before using `/%s` again.",
+				remaining.Round(time.Second), cmdCfg.Name,
+			))
+			return
 		}
-		b.cooldowns.Store(key, time.Now().Add(cmdCfg.Cooldown))
+		b.cooldowns.Set(cmdCfg.Name, userID, time.Now().Add(cmdCfg.Cooldown))
 	}
 
 	switch cmdCfg.Type {
@@ -346,6 +340,8 @@ func (b *BotWrapper) handleInternalCommand(
 		b.executeVersion(event)
 	case "ping":
 		b.executePing(event)
+	case "status":
+		b.executeStatus(event)
 	default:
 		slog.Warn("unhandled internal command", "command", cmdCfg.Name)
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -373,6 +369,35 @@ func (b *BotWrapper) executeVersion(event *events.ApplicationCommandInteractionC
 
 func (b *BotWrapper) executePing(event *events.ApplicationCommandInteractionCreate) {
 	_ = event.CreateMessage(discord.MessageCreate{Content: "Pong! Bot is operational."})
+}
+
+func (b *BotWrapper) executeStatus(event *events.ApplicationCommandInteractionCreate) {
+	ctx, cancel := context.WithTimeout(b.ctx, 5*time.Second)
+	defer cancel()
+
+	statuses := b.executors.Statuses(ctx)
+
+	names := make([]string, 0, len(statuses))
+	for name := range statuses {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var sb strings.Builder
+	sb.WriteString("**Executor Status**\n")
+	for _, name := range names {
+		s := statuses[name]
+		switch {
+		case !s.HasCheck:
+			fmt.Fprintf(&sb, "• `%s` — configured\n", name)
+		case s.Healthy:
+			fmt.Fprintf(&sb, "• `%s` — ✅ reachable\n", name)
+		default:
+			fmt.Fprintf(&sb, "• `%s` — ❌ unreachable\n", name)
+		}
+	}
+
+	replyEphemeral(event, strings.TrimRight(sb.String(), "\n"))
 }
 
 // validateArgValues checks all string argument values against their configured constraints.

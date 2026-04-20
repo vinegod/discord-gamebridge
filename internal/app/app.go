@@ -15,6 +15,7 @@ import (
 	"github.com/vinegod/discordgamebridge/internal/audit"
 	"github.com/vinegod/discordgamebridge/internal/bot"
 	"github.com/vinegod/discordgamebridge/internal/config"
+	"github.com/vinegod/discordgamebridge/internal/cooldown"
 	"github.com/vinegod/discordgamebridge/internal/discord"
 	"github.com/vinegod/discordgamebridge/internal/executor"
 	"github.com/vinegod/discordgamebridge/internal/scheduler"
@@ -113,7 +114,9 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 	// function after (flush needs the bot's REST client).
 	auditLog := buildAuditLog(cfg)
 
-	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh, reg, auditLog)
+	cooldownStore := openCooldownStore()
+
+	discordBot, err := bot.NewBot(ctx, *cfg, a.reloadCh, reg, auditLog, cooldownStore)
 	if err != nil {
 		reg.CloseAll()
 		return nil, fmt.Errorf("create bot: %w", err)
@@ -166,11 +169,31 @@ func (a *App) Start(ctx context.Context) (func(), error) {
 		if sender != nil {
 			sender.Stop()
 		}
+		if err := cooldownStore.Close(); err != nil {
+			slog.Warn("cooldown store close error", "error", err)
+		}
 		reg.CloseAll()
 		slog.Info("cleanup complete")
 	}
 
 	return cleanup, nil
+}
+
+// openCooldownStore opens the persistent cooldown database. On failure it logs a warning
+// and returns nil — the bot continues with in-memory-only cooldown tracking.
+func openCooldownStore() *cooldown.Store {
+	path, err := cooldown.DefaultPath()
+	if err != nil {
+		slog.Warn("cannot determine cooldown store path, using in-memory only", "error", err)
+		return nil
+	}
+	store, err := cooldown.Open(path)
+	if err != nil {
+		slog.Warn("cannot open cooldown store, using in-memory only", "path", path, "error", err)
+		return nil
+	}
+	slog.Info("cooldown store opened", "path", path)
+	return store
 }
 
 // buildAuditLog returns a Log if the console channel is configured, nil otherwise.

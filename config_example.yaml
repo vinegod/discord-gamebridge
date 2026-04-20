@@ -169,10 +169,16 @@ commands:
       allowed_roles: ["@everyone"]
 
   - name: "version"
-    description: "Check bot versiob"
+    description: "Check bot version"
     type: "internal"
     permissions:
       allowed_roles: ["@everyone"]
+
+  - name: "status"
+    description: "Show executor health status"
+    type: "internal"
+    permissions:
+      allowed_roles: ["YOUR_ADMIN_ROLE_ID"]
 
 # Scheduled jobs — fired on a cron expression, independent of Discord commands.
 # Missed firings on bot restart are not replayed.
